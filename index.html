@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mindustry (web, via CheerpJ)</title>
+<script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; background: #101015; overflow: hidden; }
+  #mindustry-canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #log {
+    position: fixed; left: 0; bottom: 0; right: 0; max-height: 40vh; overflow-y: auto;
+    background: rgba(0,0,0,0.85); color: #9f9; font: 12px/1.4 monospace; padding: 6px 10px;
+    white-space: pre-wrap; z-index: 9999; display: none;
+  }
+  #log.error-seen { display: block; }
+  #log .err { color: #f77; }
+  #status {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: #ccc; font: 16px/1.4 sans-serif; text-align: center; z-index: 10000;
+    transition: opacity 1s;
+  }
+  #filebridge {
+    position: fixed; top: 8px; right: 8px; z-index: 10001; display: none; gap: 6px;
+  }
+  #filebridge button {
+    background: rgba(30,34,44,0.85); color: #cdd3e0; border: 1px solid #4a5568;
+    border-radius: 4px; font: 12px/1.2 sans-serif; padding: 5px 8px; cursor: pointer;
+  }
+  #filebridge button:hover { background: rgba(50,58,74,0.95); }
+</style>
+</head>
+<body>
+<canvas id="mindustry-canvas"></canvas>
+<div id="status">Booting CheerpJ...</div>
+<div id="filebridge">
+  <button id="fb-import" title="Upload a file from your computer into the game's filesystem">Import</button>
+  <button id="fb-download" title="Download a file out of the game's filesystem">Download</button>
+  <button id="fb-where" title="Print where the game's data lives to the console">Locate data</button>
+</div>
+<div id="log"></div>
+<script src="gl-shim.js"></script>
+<script src="sdl-shim.js"></script>
+<script src="stub-natives.js"></script>
+<script src="pixmap-shim.js"></script>
+<script src="buffers-shim.js"></script>
+<script src="freetype-shim.js"></script>
+<script src="web-bridge.js"></script>
+<script type="module">
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  function log(msg, isErr) {
+    const line = document.createElement('div');
+    if (isErr) line.className = 'err';
+    line.textContent = msg;
+    logEl.appendChild(line);
+    logEl.classList.add('error-seen');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.addEventListener('error', (e) => log('[window error] ' + e.message, true));
+  const origConsoleError = console.error.bind(console);
+  console.error = (...args) => { origConsoleError(...args); log(args.map(String).join(' '), true); };
+
+  window.mindustryCanvasElement = document.getElementById('mindustry-canvas');
+
+  const natives = Object.assign({}, window.GL_SHIM_NATIVES, window.SDL_SHIM_NATIVES, window.STUB_NATIVES, window.PIXMAP_SHIM_NATIVES, window.BUFFERS_SHIM_NATIVES, window.FREETYPE_SHIM_NATIVES, window.WEB_BRIDGE_NATIVES);
+  console.log('[harness] registered', Object.keys(natives).length, 'native shims');
+
+  // Freeze bisection: wrap every native with a call tracer, and heartbeat every 3s.
+  // If the page hard-freezes (synchronous infinite loop), heartbeats STOP - the last
+  // printed line names the native in flight when it died. If heartbeats continue but
+  // the game stalls, it's an async/logic stall instead - and the per-interval histogram
+  // shows exactly which natives dominate the stall.
+  let nativeCalls = 0;
+  const shortName = (n) => n.replace(/^Java_[a-z]+_[A-Za-z0-9$_]+?_/, '').replace(/^arc_[a-z]+_00024[A-Za-z]+_/, '');
+  let intervalCounts = new Map();
+  const traced = {};
+  for (const [name, fn] of Object.entries(natives)) {
+    traced[name] = async function (...args) {
+      nativeCalls++;
+      const s = shortName(name);
+      intervalCounts.set(s, (intervalCounts.get(s) || 0) + 1);
+      if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0]; // for the file bridge
+      return fn.apply(this, args);
+    };
+  }
+  setInterval(() => {
+    const top = [...intervalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([n, c]) => `${n}x${c}`).join(', ');
+    console.log(`[watchdog] alive; total=${nativeCalls}; this interval: ${top || 'no native calls'}`);
+    intervalCounts = new Map();
+  }, 3000);
+
+  // Hide the boot status after 15s no matter what - cheerpjRunJar may not resolve
+  // until the game exits, and "Loading Mindustry.jar and starting..." shouldn't
+  // sit over the menu forever.
+  setTimeout(() => {
+    const s = document.getElementById('status');
+    if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 1000); }
+  }, 15000);
+
+  // ---- file bridge: browser <-> CheerpJ virtual filesystem -----------------------
+  // Mindustry's import/export UIs browse the Java filesystem in-game (arc.files.Fi,
+  // pure Java - there are no native file dialogs to stub in this build). So we bridge:
+  // uploads are written into the JVM's FS via static Files.write/Paths.get calls on
+  // the *running* instance's lib handle (same static+typed-array rules as our shims),
+  // downloads are read out with Files.readAllBytes and handed to the browser.
+  const fb = document.getElementById('filebridge');
+  for (const b of fb.querySelectorAll('button')) {
+    // keep bridge clicks away from the game's canvas listeners
+    for (const ev of ['mousedown', 'mouseup', 'click', 'mousemove']) b.addEventListener(ev, (e) => e.stopPropagation());
+  }
+  const showBridge = () => { if (window.__RUNNING_LIB) fb.style.display = 'flex'; else setTimeout(showBridge, 1000); };
+  showBridge();
+
+  async function fbPaths() {
+    const lib = window.__RUNNING_LIB;
+    if (!lib) throw new Error('JVM not running yet');
+    return { lib, Paths: await lib.java.nio.file.Paths, Files: await lib.java.nio.file.Files };
+  }
+  function pickLocalFile() {
+    return new Promise((resolve) => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.onchange = () => resolve(inp.files[0] || null);
+      inp.click();
+    });
+  }
+  async function fbImport() {
+    try {
+      const file = await pickLocalFile();
+      if (!file) return;
+      const { lib, Paths, Files } = await fbPaths();
+      const dir = prompt('Import into which directory of the game filesystem?\n(e.g. the game data directory - click "Locate data" to find it)', window.__fbLastDir || '/files');
+      if (dir == null) return;
+      window.__fbLastDir = dir;
+      const dirPath = await Paths.get(dir);
+      try { await Files.createDirectories(dirPath); } catch (e) { /* may already exist */ }
+      const target = await Paths.get(dir + '/' + file.name);
+      const bytes = new Int8Array(await file.arrayBuffer());
+      await Files.write(target, bytes);
+      console.log(`[filebridge] imported ${file.name} (${bytes.byteLength} bytes) -> ${dir}`);
+    } catch (e) { console.error('[filebridge] import failed', e); alert('Import failed: ' + e); }
+  }
+  async function fbDownload() {
+    try {
+      const { Paths, Files } = await fbPaths();
+      const path = prompt('Absolute path in the game filesystem to download:', window.__fbLastPath || '');
+      if (!path) return;
+      window.__fbLastPath = path;
+      const p = await Paths.get(path);
+      const bytes = await Files.readAllBytes(p); // Java byte[] -> Int8Array
+      const name = path.split('/').pop() || 'file';
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      console.log(`[filebridge] downloaded ${path} (${bytes.byteLength} bytes)`);
+    } catch (e) { console.error('[filebridge] download failed', e); alert('Download failed: ' + e); }
+  }
+  async function fbWhere() {
+    try {
+      const { lib } = await fbPaths();
+      const System = await lib.java.lang.System;
+      const home = await System.getProperty('user.home');
+      const cwd = await System.getProperty('user.dir');
+      console.log(`[filebridge] user.home=${home} user.dir=${cwd}`);
+      const File = await lib.java.io.File;
+      const roots = await File.listRoots(); // static, no args -> File[]
+      for (const root of roots) {
+        const rp = await root.getAbsolutePath();
+        let entries = null;
+        try { entries = await root.listFiles(); } catch (e) {}
+        const names = entries ? [] : null;
+        if (entries) for (const f of entries.slice(0, 50)) names.push(await f.getAbsolutePath());
+        console.log(`[filebridge] root ${rp}${names ? ':\n  ' + names.join('\n  ') : ' (empty/unreadable)'}`);
+      }
+      alert(`Logged filesystem layout to the console (user.home=${home}).\nPaste it back to set smart defaults.`);
+    } catch (e) { console.error('[filebridge] locate failed', e); alert('Locate failed: ' + e); }
+  }
+  document.getElementById('fb-import').addEventListener('click', fbImport);
+  document.getElementById('fb-download').addEventListener('click', fbDownload);
+  document.getElementById('fb-where').addEventListener('click', fbWhere);
+
+  try {
+    statusEl.textContent = 'Initializing CheerpJ runtime (this fetches a JVM - first load is slow)...';
+    await cheerpjInit({
+      // Mindustry.jar's *bytecode* targets Java 8, but DesktopLauncher.checkJavaVersion()
+      // does a runtime check requiring arc.util.OS.javaVersionNumber >= 17 (the "Java 25
+      // is required" message is misleading - the actual bytecode check is >= 17). CheerpJ
+      // reports its emulated version through that same property, so we ask for 17.
+      version: 17,
+      natives: traced,
+    });
+
+    // Some native shims (pixmap-shim.js's Pixmap.loadJni, buffers-shim.js's
+    // newDisposableByteBuffer, freetype-shim.js's Bitmap.getBuffer) need to construct
+    // real Java objects (java.nio.ByteBuffer) rather than just returning
+    // primitives/typed-arrays. Every native call already receives a `lib` handle scoped
+    // to *this* running instance for that (see gl-shim.js's readBuffer(), which already
+    // used lib.getJNIDataView()) - that's what those shims use now. This separate
+    // cheerpjRunLibrary call turned out to build ByteBuffers in a *different* JVM
+    // instance of the same jar, which real testing showed produces a "CheerpJ: Invalid
+    // type conversion attempted" error when handed back into the actually-running app -
+    // same family of issue as Round 2's SharedLibraryLoader library-mode problem. Kept
+    // around only as those shims' fallback path in case `lib.java.*` ever turns out not
+    // to expose what's needed for some other class.
+    window.CJ_LIB = await cheerpjRunLibrary('/app/Mindustry.jar');
+
+    statusEl.textContent = 'Creating display...';
+    cheerpjCreateDisplay(-1, -1); // -1,-1: let CheerpJ size to the actual canvas
+
+    // Note: Mindustry.jar has been patched (arc/util/SharedLibraryLoader.class) so that
+    // load() is a no-op - see README.md "Progress log" for why and how. That means we
+    // don't need any JS-side workaround here anymore; a plain cheerpjRunJar is enough.
+    statusEl.textContent = 'Loading Mindustry.jar and starting...';
+    await cheerpjRunJar('/app/Mindustry.jar');
+
+    statusEl.remove();
+  } catch (e) {
+    statusEl.textContent = '';
+    log('[fatal] ' + (e && e.stack || e), true);
+    console.error(e);
+  }
+</script>
+</body>
+</html>
