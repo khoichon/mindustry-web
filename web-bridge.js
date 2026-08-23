@@ -57,6 +57,10 @@
     throw new Error('no writable directory in the JVM filesystem');
   }
 
+  // choose() records its open-vs-save decision per path so finished() doesn't have
+  // to trust the (unreliable) flag - a mis-flagged open must not spurious-download.
+  const decisions = new Map();
+
   async function fiFor(lib, path) {
     const FiClass = await lib.arc.files.Fi;
     return FiClass.get(path); // static Fi.get(String) - resolves by the String argument
@@ -64,24 +68,32 @@
 
   NATIVES['Java_mindustry_web_WebBridge_choose'] = async (lib, save, title, extensionsCsv) => {
     try {
-      save = !!save;
+      // The game's save flag is UNRELIABLE across call sites (verified in real runs:
+      // Platform.export's default passes false for saves; SettingsMenuDialog.importData
+      // passes true for opens). The dialog title carries the real intent - Mindustry
+      // passes bundle keys like "@open"/"@save" - so prefer that, fall back to the flag.
+      const t = String(title || '');
+      const wantsOpen = /open|import|load/i.test(t) || (!save && !/save|export/i.test(t));
+      console.log(`[web-bridge] choose: title="${t}" flag=${!!save} -> ${wantsOpen ? 'OPEN (browser picker)' : 'SAVE (writable target)'}`);
       // extensions arrive pre-joined by WebLauncher ("msav,msch") - Java String[]
       // args marshal as opaque proxies JS can't iterate, so never pass arrays here
       const extList = String(extensionsCsv || '').split(',').map(e => e.trim()).filter(Boolean);
       const { Paths, Files } = await jvm(lib);
       const dir = await bridgeDir(lib, Files, Paths);
-      if (!save) {
+      if (wantsOpen) {
         const file = await pickLocalFile(extList);
         if (!file) return null; // user cancelled -> game treats null as no-op
         const path = dir + '/' + sanitize(file.name);
         const bytes = new Int8Array(await file.arrayBuffer());
         await Files.write(await Paths.get(path), bytes);
         console.log(`[web-bridge] imported ${file.name} (${bytes.byteLength} bytes) -> ${path}`);
+        decisions.set(path, 'open');
         return await fiFor(lib, path);
       } else {
         const ext = extList.length ? '.' + String(extList[0]).replace(/^\./, '') : '';
-        const path = dir + '/' + sanitize(title || 'export') + ext;
+        const path = dir + '/' + sanitize(t || 'export') + ext;
         console.log('[web-bridge] save target:', path);
+        decisions.set(path, 'save');
         return await fiFor(lib, path);
       }
     } catch (e) {
@@ -91,10 +103,11 @@
   };
 
   NATIVES['Java_mindustry_web_WebBridge_finished'] = async (lib, save, path) => {
-    if (!save || !path) return;
+    const p = String(path || '');
+    // trust choose()'s recorded intent over the flag
+    if (!p || decisions.get(p) !== 'save') { decisions.delete(p); return; }
     try {
       const { Paths, Files } = await jvm(lib);
-      const p = String(path);
       const bytes = await Files.readAllBytes(await Paths.get(p)); // Java byte[] -> Int8Array
       const blob = new Blob([bytes], { type: 'application/octet-stream' });
       const a = document.createElement('a');
@@ -103,6 +116,7 @@
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       console.log(`[web-bridge] downloaded ${p} (${bytes.byteLength} bytes)`);
+      decisions.delete(p);
     } catch (e) {
       console.error('[web-bridge] download failed', e);
     }
