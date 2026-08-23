@@ -902,6 +902,42 @@ bundled into this one:
     with `choose(boolean, String title, String extensionsCsv)` - WebLauncher joins
     the extensions into a CSV itself - and updated the jar (DesktopLauncher patch
     untouched, `-Xverify:all` still clean). web-bridge.js splits the CSV.
+39. **Second real test**: export opened the browser *upload* picker; import crashed.
+    Bytecode explains the first: `Platform.export(name, ext, writer)`'s DEFAULT
+    implementation calls `showFileChooser(FALSE, ...)` even for exports - the game
+    just writes inside the callback, so the flag carries no intent on that path.
+    Fix: WebLauncher now also **overrides `export()`** directly (choose(true) ->
+    writer.write(fi) -> finished(true) = download), and only trusts the flag on
+    direct showFileChooser calls. Callbacks are additionally wrapped in
+    try/catch + `Log.err(...)` so whatever the import crash was, its stack will
+    land in the game log (visible on the page red log) instead of an opaque
+    propagate. `Fi.get(String)` verified un-overloaded (no resolution risk).
+    Import crash cause still unidentified - next report should contain the stack.
+40. **Third real test produced the smoking gun**: import-data's stack showed
+    `choose(save=true, "@open", "zip")` - i.e. the flag said SAVE for an obvious
+    open (SettingsMenuDialog.importData), mirroring export()'s false-for-saves.
+    Conclusion: **the save boolean is unreliable in both directions across
+    Mindustry's call sites; the dialog title (bundle key "@open"/"@save") carries
+    the real intent.** web-bridge.js now decides open-vs-save from the title
+    (regex open|import|load; else fall back to the flag), logs its decision, and
+    `choose` records the decision per path so `finished` only downloads when the
+    flow was really a save (no spurious downloads of imported files). Jar
+    unchanged this round - JS only.
+41. **Fourth real test**: import-data works, but the game then freezes with the
+    watchdog showing `alive; ... no native calls` repeating - JS event loop
+    healthy, JVM making ZERO native crossings. That means the game loop is stuck
+    inside pure-Java code (no native in the loop). importData's tail is
+    `Fi.copyTo -> ZipFi walk -> deleteDirectory -> Settings.clear/load ->
+    rebuildMenu` - pure Java + CheerpJ virtual-FS calls. To pinpoint the exact
+    frame, a **Stack dump** button was added to the bridge toolbar:
+    `Thread.getAllStackTraces().toString()` via the running lib (static + no-arg
+    instance call, both proven) printed through console.error so it also hits the
+    on-page red log. If THAT hangs instead, the CheerpJ dispatcher itself is
+    blocked with the main thread - a different (also informative) diagnosis.
+    **Resolved without needing it**: the user reports it wasn't a freeze at all -
+    the settings import just takes a very long time (pure-Java zip walk + settings
+    reload in CheerpJ, no native crossings, hence the silent watchdog). Slow but
+    functional. The Stack dump button stays as a diagnostic for real freezes.
 
 ## Current status as of handoff
 Last real browser test: passed the version log (Round 15's FreeType crash is confirmed

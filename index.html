@@ -19,24 +19,11 @@
     color: #ccc; font: 16px/1.4 sans-serif; text-align: center; z-index: 10000;
     transition: opacity 1s;
   }
-  #filebridge {
-    position: fixed; top: 8px; right: 8px; z-index: 10001; display: none; gap: 6px;
-  }
-  #filebridge button {
-    background: rgba(30,34,44,0.85); color: #cdd3e0; border: 1px solid #4a5568;
-    border-radius: 4px; font: 12px/1.2 sans-serif; padding: 5px 8px; cursor: pointer;
-  }
-  #filebridge button:hover { background: rgba(50,58,74,0.95); }
 </style>
 </head>
 <body>
 <canvas id="mindustry-canvas"></canvas>
 <div id="status">Booting CheerpJ...</div>
-<div id="filebridge">
-  <button id="fb-import" title="Upload a file from your computer into the game's filesystem">Import</button>
-  <button id="fb-download" title="Download a file out of the game's filesystem">Download</button>
-  <button id="fb-where" title="Print where the game's data lives to the console">Locate data</button>
-</div>
 <div id="log"></div>
 <script src="gl-shim.js"></script>
 <script src="sdl-shim.js"></script>
@@ -98,74 +85,19 @@
     if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 1000); }
   }, 15000);
 
-  // ---- file bridge: browser <-> CheerpJ virtual filesystem -----------------------
-  // Mindustry's import/export UIs browse the Java filesystem in-game (arc.files.Fi,
-  // pure Java - there are no native file dialogs to stub in this build). So we bridge:
-  // uploads are written into the JVM's FS via static Files.write/Paths.get calls on
-  // the *running* instance's lib handle (same static+typed-array rules as our shims),
-  // downloads are read out with Files.readAllBytes and handed to the browser.
-  const fb = document.getElementById('filebridge');
-  for (const b of fb.querySelectorAll('button')) {
-    // keep bridge clicks away from the game's canvas listeners
-    for (const ev of ['mousedown', 'mouseup', 'click', 'mousemove']) b.addEventListener(ev, (e) => e.stopPropagation());
-  }
-  const showBridge = () => { if (window.__RUNNING_LIB) fb.style.display = 'flex'; else setTimeout(showBridge, 1000); };
-  showBridge();
-
-  async function fbPaths() {
-    const lib = window.__RUNNING_LIB;
-    if (!lib) throw new Error('JVM not running yet');
-    return { lib, Paths: await lib.java.nio.file.Paths, Files: await lib.java.nio.file.Files };
-  }
-  function pickLocalFile() {
-    return new Promise((resolve) => {
-      const inp = document.createElement('input');
-      inp.type = 'file';
-      inp.onchange = () => resolve(inp.files[0] || null);
-      inp.click();
-    });
-  }
-  async function fbImport() {
-    try {
-      const file = await pickLocalFile();
-      if (!file) return;
-      const { lib, Paths, Files } = await fbPaths();
-      const dir = prompt('Import into which directory of the game filesystem?\n(e.g. the game data directory - click "Locate data" to find it)', window.__fbLastDir || '/files');
-      if (dir == null) return;
-      window.__fbLastDir = dir;
-      const dirPath = await Paths.get(dir);
-      try { await Files.createDirectories(dirPath); } catch (e) { /* may already exist */ }
-      const target = await Paths.get(dir + '/' + file.name);
-      const bytes = new Int8Array(await file.arrayBuffer());
-      await Files.write(target, bytes);
-      console.log(`[filebridge] imported ${file.name} (${bytes.byteLength} bytes) -> ${dir}`);
-    } catch (e) { console.error('[filebridge] import failed', e); alert('Import failed: ' + e); }
-  }
-  async function fbDownload() {
-    try {
-      const { Paths, Files } = await fbPaths();
-      const path = prompt('Absolute path in the game filesystem to download:', window.__fbLastPath || '');
-      if (!path) return;
-      window.__fbLastPath = path;
-      const p = await Paths.get(path);
-      const bytes = await Files.readAllBytes(p); // Java byte[] -> Int8Array
-      const name = path.split('/').pop() || 'file';
-      const blob = new Blob([bytes], { type: 'application/octet-stream' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      console.log(`[filebridge] downloaded ${path} (${bytes.byteLength} bytes)`);
-    } catch (e) { console.error('[filebridge] download failed', e); alert('Download failed: ' + e); }
-  }
-  async function fbWhere() {
-    try {
-      const { lib } = await fbPaths();
+  // ---- console diagnostics: window.__toolbar --------------------------------------
+  // The on-screen toolbar is gone; the diagnostics live as console functions:
+  //   __toolbar.locateData() - print where the game's files live (user.home, roots)
+  //   __toolbar.stackDump()  - print every Java thread's current stack (for freezes)
+  // Both await the running JVM's lib handle (captured by the native tracer above).
+  global.__toolbar = {
+    async locateData() {
+      const lib = window.__RUNNING_LIB;
+      if (!lib) { console.warn('[toolbar] JVM not running yet'); return; }
       const System = await lib.java.lang.System;
       const home = await System.getProperty('user.home');
       const cwd = await System.getProperty('user.dir');
-      console.log(`[filebridge] user.home=${home} user.dir=${cwd}`);
+      console.log(`[toolbar] user.home=${home} user.dir=${cwd}`);
       const File = await lib.java.io.File;
       const roots = await File.listRoots(); // static, no args -> File[]
       for (const root of roots) {
@@ -174,14 +106,25 @@
         try { entries = await root.listFiles(); } catch (e) {}
         const names = entries ? [] : null;
         if (entries) for (const f of entries.slice(0, 50)) names.push(await f.getAbsolutePath());
-        console.log(`[filebridge] root ${rp}${names ? ':\n  ' + names.join('\n  ') : ' (empty/unreadable)'}`);
+        console.log(`[toolbar] root ${rp}${names ? ':\n  ' + names.join('\n  ') : ' (empty/unreadable)'}`);
       }
-      alert(`Logged filesystem layout to the console (user.home=${home}).\nPaste it back to set smart defaults.`);
-    } catch (e) { console.error('[filebridge] locate failed', e); alert('Locate failed: ' + e); }
-  }
-  document.getElementById('fb-import').addEventListener('click', fbImport);
-  document.getElementById('fb-download').addEventListener('click', fbDownload);
-  document.getElementById('fb-where').addEventListener('click', fbWhere);
+      return { home, cwd };
+    },
+    async stackDump() {
+      const lib = window.__RUNNING_LIB;
+      if (!lib) { console.warn('[stackdump] JVM not running yet'); return; }
+      try {
+        const Thread = await lib.java.lang.Thread;
+        const map = await Thread.getAllStackTraces();
+        const text = await map.toString();
+        console.error('[stackdump] ' + text);
+        return text;
+      } catch (e) {
+        console.error('[stackdump] failed - if this hangs, the JVM dispatcher itself is blocked', e);
+        return null;
+      }
+    },
+  };
 
   try {
     statusEl.textContent = 'Initializing CheerpJ runtime (this fetches a JVM - first load is slow)...';
