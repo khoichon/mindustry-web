@@ -90,7 +90,7 @@
   //   __toolbar.locateData() - print where the game's files live (user.home, roots)
   //   __toolbar.stackDump()  - print every Java thread's current stack (for freezes)
   // Both await the running JVM's lib handle (captured by the native tracer above).
-  global.__toolbar = {
+  window.__toolbar = {
     async locateData() {
       const lib = window.__RUNNING_LIB;
       if (!lib) { console.warn('[toolbar] JVM not running yet'); return; }
