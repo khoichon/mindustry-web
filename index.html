@@ -149,7 +149,7 @@
     // same family of issue as Round 2's SharedLibraryLoader library-mode problem. Kept
     // around only as those shims' fallback path in case `lib.java.*` ever turns out not
     // to expose what's needed for some other class.
-    window.CJ_LIB = await cheerpjRunLibrary('./Mindustry.jar');
+    window.CJ_LIB = await cheerpjRunLibrary('/app/mindustry-web/Mindustry.jar');
 
     statusEl.textContent = 'Creating display...';
     cheerpjCreateDisplay(-1, -1); // -1,-1: let CheerpJ size to the actual canvas
@@ -158,7 +158,7 @@
     // load() is a no-op - see README.md "Progress log" for why and how. That means we
     // don't need any JS-side workaround here anymore; a plain cheerpjRunJar is enough.
     statusEl.textContent = 'Loading Mindustry.jar and starting...';
-    await cheerpjRunJar('./Mindustry.jar');
+    await cheerpjRunJar('/app/mindustry-web/Mindustry.jar');
 
     statusEl.remove();
   } catch (e) {
