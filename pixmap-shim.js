@@ -34,8 +34,9 @@
     try {
       return await lib.java.nio.ByteBuffer; // scoped to the actually-running JVM instance
     } catch (e) {
-      console.warn('[pixmap-shim] lib.java.nio.ByteBuffer unavailable, falling back to window.CJ_LIB', e);
-      return await global.CJ_LIB.java.nio.ByteBuffer;
+      console.warn('[pixmap-shim] lib.java.nio.ByteBuffer unavailable, falling back to separate CJ_LIB instance', e);
+      const cjLib = await global.getCJLibFallback();
+      return await cjLib.java.nio.ByteBuffer;
     }
   }
 

@@ -106,7 +106,19 @@
       const pos = await buf.position();
       const rem = await buf.remaining();
       const out = new Ctor(rem);
-      for (let i = 0; i < rem; i++) out[i] = await buf.get(pos + i); // absolute scalar get - no array argument, unambiguous
+      // Absolute get(index) calls (not relative get()) don't touch buf's position and
+      // don't depend on each other, so they're safe to fire concurrently in batches
+      // instead of paying one full JS<->JVM round trip at a time - round-trip latency,
+      // not JS-side work, dominates this loop. CHUNK keeps us from firing an unbounded
+      // burst at once for very large buffers.
+      const CHUNK = 64;
+      for (let start = 0; start < rem; start += CHUNK) {
+        const end = Math.min(start + CHUNK, rem);
+        const vals = await Promise.all(
+          Array.from({ length: end - start }, (_, k) => buf.get(pos + start + k))
+        );
+        for (let k = 0; k < vals.length; k++) out[start + k] = vals[k];
+      }
       return out;
     } catch (e) {
       console.error('[gl-shim] could not read Buffer contents via get() - see readBuffer() in gl-shim.js', e, buf);
@@ -509,7 +521,15 @@
   async function writeIntBuffer(lib, buf, values) {
     try {
       const pos = await buf.position();
-      for (let i = 0; i < values.length; i++) await buf.put(pos + i, values[i]); // scalar args only - see readBuffer's header comment on why bulk array args don't resolve
+      // Same reasoning as readBuffer's scalar path above: absolute put(index, value)
+      // is order-independent and position-safe, so batch the round trips.
+      const CHUNK = 64;
+      for (let start = 0; start < values.length; start += CHUNK) {
+        const end = Math.min(start + CHUNK, values.length);
+        await Promise.all(
+          Array.from({ length: end - start }, (_, k) => buf.put(pos + start + k, values[start + k]))
+        );
+      }
     } catch (e) {
       console.error('[gl-shim] writeIntBuffer via put() failed - see gl-shim.js', e, buf, values);
     }
@@ -534,7 +554,13 @@
     // against a JS typed-array argument, so there's no bulk path worth attempting first.
     try {
       const pos = await buf.position();
-      for (let i = 0; i < bytes.length; i++) await buf.put(pos + i, bytes[i]);
+      const CHUNK = 64;
+      for (let start = 0; start < bytes.length; start += CHUNK) {
+        const end = Math.min(start + CHUNK, bytes.length);
+        await Promise.all(
+          Array.from({ length: end - start }, (_, k) => buf.put(pos + start + k, bytes[start + k]))
+        );
+      }
     } catch (e) {
       console.error('[gl-shim] writeByteBuffer via put() failed - see gl-shim.js', e, buf);
     }
