@@ -23,12 +23,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=$(gh release view --repo OWNER/REPOSITORY --json tagName --jq '.tagName')
+          TAG=$(gh release view --repo khoichon/mindustry-web --json tagName --jq '.tagName')
       
           gh release download "$TAG" \
-            --repo OWNER/REPOSITORY \
-            --pattern "file.zip" \
-            --output "./file.zip"
+            --repo khoichon/mindustry-web \
+            --pattern "Mindustry.jar" \
+            --output "./Mindustry.jar"
 
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
