@@ -1,0 +1,40 @@
+name: Build and Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download latest release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo OWNER/REPOSITORY --latest \
+            --pattern "YOUR_FILE_NAME" \
+            --output "./YOUR_FILE_NAME"
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
