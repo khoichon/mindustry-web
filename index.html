@@ -57,25 +57,54 @@
   // printed line names the native in flight when it died. If heartbeats continue but
   // the game stalls, it's an async/logic stall instead - and the per-interval histogram
   // shows exactly which natives dominate the stall.
+  //
+  // This wraps EVERY native call in an async fn + counter increment + Map lookup, which
+  // is measurable overhead when natives fire thousands of times a frame (every GL call,
+  // every buffer copy...). Keep this OFF for normal play; flip it on only when actively
+  // bisecting a freeze/stall or auditing native call volume.
+  const DEBUG_NATIVE_TRACING = false;
+
   let nativeCalls = 0;
   const shortName = (n) => n.replace(/^Java_[a-z]+_[A-Za-z0-9$_]+?_/, '').replace(/^arc_[a-z]+_00024[A-Za-z]+_/, '');
   let intervalCounts = new Map();
   const traced = {};
-  for (const [name, fn] of Object.entries(natives)) {
-    traced[name] = async function (...args) {
-      nativeCalls++;
-      const s = shortName(name);
-      intervalCounts.set(s, (intervalCounts.get(s) || 0) + 1);
-      if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0]; // for the file bridge
-      return fn.apply(this, args);
-    };
+  if (DEBUG_NATIVE_TRACING) {
+    for (const [name, fn] of Object.entries(natives)) {
+      traced[name] = async function (...args) {
+        nativeCalls++;
+        const s = shortName(name);
+        intervalCounts.set(s, (intervalCounts.get(s) || 0) + 1);
+        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0]; // for the file bridge
+        return fn.apply(this, args);
+      };
+    }
+    setInterval(() => {
+      const top = [...intervalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+        .map(([n, c]) => `${n}x${c}`).join(', ');
+      console.log(`[watchdog] alive; total=${nativeCalls}; this interval: ${top || 'no native calls'}`);
+      intervalCounts = new Map();
+    }, 3000);
+  } else {
+    // window.__RUNNING_LIB only backs the __toolbar diagnostics below (locateData,
+    // stackDump) - opt-in console tools, never on the hot path. Every native shim
+    // already receives its OWN `lib` handle as args[0] on every call, scoped to the
+    // actually-running JVM instance (see gl-shim.js's readBuffer(), pixmap-shim.js,
+    // buffers-shim.js, freetype-shim.js) - shim *behavior* never depended on
+    // window.__RUNNING_LIB, only these two debug helpers did. So instead of wrapping
+    // every native just to grab that handle once, piggyback on SDL_CreateWindow,
+    // which CheerpJ calls exactly once, early, to create the game window - one cheap
+    // wrapper, one call, then it's done; every other native goes straight through.
+    const createWindowKey = Object.keys(natives).find((n) => n.includes('SDL_1CreateWindow'));
+    if (createWindowKey) {
+      const origCreateWindow = natives[createWindowKey];
+      natives[createWindowKey] = function (...args) {
+        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0];
+        return origCreateWindow.apply(this, args);
+      };
+    } else {
+      console.warn('[harness] SDL_CreateWindow not found in natives; window.__RUNNING_LIB (toolbar diagnostics) will stay unset');
+    }
   }
-  setInterval(() => {
-    const top = [...intervalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
-      .map(([n, c]) => `${n}x${c}`).join(', ');
-    console.log(`[watchdog] alive; total=${nativeCalls}; this interval: ${top || 'no native calls'}`);
-    intervalCounts = new Map();
-  }, 3000);
 
   // Hide the boot status after 15s no matter what - cheerpjRunJar may not resolve
   // until the game exits, and "Loading Mindustry.jar and starting..." shouldn't
@@ -89,7 +118,8 @@
   // The on-screen toolbar is gone; the diagnostics live as console functions:
   //   __toolbar.locateData() - print where the game's files live (user.home, roots)
   //   __toolbar.stackDump()  - print every Java thread's current stack (for freezes)
-  // Both await the running JVM's lib handle (captured by the native tracer above).
+  // Both await the running JVM's lib handle, captured once above (via the native
+  // tracer in debug mode, or the single SDL_CreateWindow hook otherwise).
   window.__toolbar = {
     async locateData() {
       const lib = window.__RUNNING_LIB;
@@ -134,7 +164,7 @@
       // is required" message is misleading - the actual bytecode check is >= 17). CheerpJ
       // reports its emulated version through that same property, so we ask for 17.
       version: 17,
-      natives: traced,
+      natives: DEBUG_NATIVE_TRACING ? traced : natives,
     });
 
     // Some native shims (pixmap-shim.js's Pixmap.loadJni, buffers-shim.js's
@@ -142,14 +172,24 @@
     // real Java objects (java.nio.ByteBuffer) rather than just returning
     // primitives/typed-arrays. Every native call already receives a `lib` handle scoped
     // to *this* running instance for that (see gl-shim.js's readBuffer(), which already
-    // used lib.getJNIDataView()) - that's what those shims use now. This separate
-    // cheerpjRunLibrary call turned out to build ByteBuffers in a *different* JVM
-    // instance of the same jar, which real testing showed produces a "CheerpJ: Invalid
-    // type conversion attempted" error when handed back into the actually-running app -
-    // same family of issue as Round 2's SharedLibraryLoader library-mode problem. Kept
-    // around only as those shims' fallback path in case `lib.java.*` ever turns out not
-    // to expose what's needed for some other class.
-    window.CJ_LIB = await cheerpjRunLibrary('/app/mindustry-web/Mindustry.jar');
+    // used lib.getJNIDataView()) - that's what those shims use now, and it works for
+    // every class those shims actually touch. A separate cheerpjRunLibrary call used to
+    // sit here, eagerly awaited before display creation, purely as a fallback in case
+    // `lib.java.*` didn't expose what a shim needed. Awaiting it here meant every page
+    // load booted a *second* full JVM instance of the same jar before the game could
+    // even start - and real testing showed that instance doesn't even work as a
+    // fallback (handing its objects to the actually-running app produces a "CheerpJ:
+    // Invalid type conversion attempted" error, same family of issue as Round 2's
+    // SharedLibraryLoader library-mode problem). So it's now lazy: only spun up the
+    // first time a shim's primary `lib.java.*` path actually throws, instead of on
+    // every boot regardless of whether it's ever needed.
+    window.getCJLibFallback = () => {
+      if (!window.__cjLibPromise) {
+        console.warn('[harness] a shim fell back to the separate cheerpjRunLibrary instance - this is known to sometimes produce "Invalid type conversion attempted" errors, see index.html comments');
+        window.__cjLibPromise = cheerpjRunLibrary('/app/mindustry-web/Mindustry.jar');
+      }
+      return window.__cjLibPromise;
+    };
 
     statusEl.textContent = 'Creating display...';
     cheerpjCreateDisplay(-1, -1); // -1,-1: let CheerpJ size to the actual canvas

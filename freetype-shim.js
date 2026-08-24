@@ -376,8 +376,9 @@
     try {
       ByteBufferClass = await lib.java.nio.ByteBuffer; // scoped to the actually-running JVM instance
     } catch (e) {
-      console.warn('[freetype-shim] lib.java.nio.ByteBuffer unavailable, falling back to window.CJ_LIB', e);
-      ByteBufferClass = await global.CJ_LIB.java.nio.ByteBuffer;
+      console.warn('[freetype-shim] lib.java.nio.ByteBuffer unavailable, falling back to separate CJ_LIB instance', e);
+      const cjLib = await global.getCJLibFallback();
+      ByteBufferClass = await cjLib.java.nio.ByteBuffer;
     }
     // Same wrap()-not-allocateDirect() reasoning as pixmap-shim.js; when JS-aliasing
     // works this also registers the buffer so gl-shim's reads of glyph pixels are O(1).

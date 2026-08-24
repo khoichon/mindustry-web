@@ -37,8 +37,9 @@
     try {
       return await lib.java.nio.ByteBuffer;
     } catch (e) {
-      console.warn('[buffers-shim] lib.java.nio.ByteBuffer unavailable, falling back to window.CJ_LIB', e);
-      return await global.CJ_LIB.java.nio.ByteBuffer;
+      console.warn('[buffers-shim] lib.java.nio.ByteBuffer unavailable, falling back to separate CJ_LIB instance', e);
+      const cjLib = await global.getCJLibFallback();
+      return await cjLib.java.nio.ByteBuffer;
     }
   }
 
@@ -278,8 +279,10 @@
         return;
       } catch (e) { /* fall through to per-byte */ }
     }
-    // Strategy 6 (last resort): one awaited put() per element. Real-run data showed
-    // multi-KB copies here at ~200ms each - the log line says what landed on this path.
+    // Strategy 6 (last resort): batched put() calls (see below), 64 at a time via
+    // Promise.all instead of one full round trip per element. Real-run data showed
+    // multi-KB copies here at ~200ms sequentially - the log line says what landed on
+    // this path.
     if (++slowScalarCount % 20 === 1) {
       console.error(`[buffers-shim] SLOW scalar copy path in use #${slowScalarCount}: ${signed.byteLength} bytes, dst=${dst?.constructor?.name}, caps=${JSON.stringify(caps)}`);
     }
@@ -287,13 +290,22 @@
     const dv = new DataView(signed.buffer, signed.byteOffset, signed.byteLength);
     const count = signed.byteLength / size;
     const dstElemOffset = dstByteOffset / size; // real call sites always keep this aligned to dst's element size
-    for (let i = 0; i < count; i++) {
-      let value;
-      if (kind === 'float') value = dv.getFloat32(i * size, true); // true = little-endian; matches Buffers.order(ByteOrder.nativeOrder()) on every real desktop/browser platform
-      else if (kind === 'short') value = dv.getInt16(i * size, true);
-      else if (kind === 'int') value = dv.getInt32(i * size, true);
-      else value = dv.getInt8(i * size);
-      await dst.put(dstElemOffset + i, value);
+    // Absolute put(index, value) again - order-independent, so batch the round trips
+    // the same way as gl-shim.js's writeIntBuffer/writeByteBuffer instead of paying
+    // one full JS<->JVM trip per element; this is the path the header comment above
+    // measured at ~200ms for a multi-KB copy, so it's the one most worth batching.
+    const CHUNK = 64;
+    for (let start = 0; start < count; start += CHUNK) {
+      const end = Math.min(start + CHUNK, count);
+      await Promise.all(Array.from({ length: end - start }, (_, k) => {
+        const i = start + k;
+        let value;
+        if (kind === 'float') value = dv.getFloat32(i * size, true); // true = little-endian; matches Buffers.order(ByteOrder.nativeOrder()) on every real desktop/browser platform
+        else if (kind === 'short') value = dv.getInt16(i * size, true);
+        else if (kind === 'int') value = dv.getInt32(i * size, true);
+        else value = dv.getInt8(i * size);
+        return dst.put(dstElemOffset + i, value);
+      }));
     }
   }
 

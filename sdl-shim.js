@@ -54,7 +54,20 @@
 
   function scancodeFor(e) { return SCANCODE[e.code] || 0; }
 
-  function pushEvent(arr) { eventQueue.push(arr); }
+  // eventReadIndex-based dequeue instead of Array.shift(): shift() re-indexes the
+  // entire remaining array on every call, and SDL_PollEvent is called in a drain
+  // loop (once per queued event, every frame) - shift() turns a burst of N queued
+  // events (e.g. several mousemoves between frames) into O(N^2) work. Advancing a
+  // read index is O(1) per poll; the array is only physically compacted
+  // (occasionally, amortized) once it's fully drained or has grown large.
+  let eventReadIndex = 0;
+  function pushEvent(arr) {
+    if (eventReadIndex > 0 && eventReadIndex >= eventQueue.length) {
+      eventQueue.length = 0;
+      eventReadIndex = 0;
+    }
+    eventQueue.push(arr);
+  }
 
   function attachInputListeners(el) {
     el.tabIndex = 0; // canvas needs to be focusable to receive key events
@@ -178,9 +191,15 @@
 
   // --- events ---------------------------------------------------------------------
   native('SDL_PollEvent', async (lib, data) => {
-    if (eventQueue.length === 0) return false;
-    const ev = eventQueue.shift();
+    if (eventReadIndex >= eventQueue.length) {
+      if (eventQueue.length) { eventQueue.length = 0; eventReadIndex = 0; } // fully drained - compact
+      return false;
+    }
+    const ev = eventQueue[eventReadIndex++];
     for (let i = 0; i < ev.length && i < data.length; i++) data[i] = ev[i];
+    // Bound unbounded growth during a heavy event burst: splice off consumed
+    // entries every 256 events instead of on every single poll (amortized cost).
+    if (eventReadIndex > 256) { eventQueue.splice(0, eventReadIndex); eventReadIndex = 0; }
     return true;
   });
 
