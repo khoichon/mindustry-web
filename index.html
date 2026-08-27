@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Mindustry (web, via CheerpJ)</title>
+<title>Mindustry (Web port)</title>
 <script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
 <link rel="icon" href="./favicon.ico">
 <style>
@@ -158,7 +158,7 @@
   };
 
   try {
-    statusEl.textContent = 'Initializing CheerpJ runtime (this fetches a JVM - first load is slow)...';
+    statusEl.textContent = 'Initialising... (This takes a very long time if it is your first time loading, be patient!)';
     await cheerpjInit({
       // Mindustry.jar's *bytecode* targets Java 8, but DesktopLauncher.checkJavaVersion()
       // does a runtime check requiring arc.util.OS.javaVersionNumber >= 17 (the "Java 25
@@ -198,7 +198,7 @@
     // Note: Mindustry.jar has been patched (arc/util/SharedLibraryLoader.class) so that
     // load() is a no-op - see README.md "Progress log" for why and how. That means we
     // don't need any JS-side workaround here anymore; a plain cheerpjRunJar is enough.
-    statusEl.textContent = 'Loading Mindustry.jar and starting...';
+    statusEl.textContent = 'Loading Mindustry...';
     await cheerpjRunJar('/app/mindustry-web/Mindustry.jar');
 
     statusEl.remove();
