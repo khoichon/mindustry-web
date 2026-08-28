@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mindustry (Web port)</title>
+<script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
+<link rel="icon" href="/mindustry-web/favicon.ico">
+<style>
+  html, body { margin: 0; height: 100%; background: #101015; overflow: hidden; }
+  #mindustry-canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #log {
+    position: fixed; left: 0; bottom: 0; right: 0; max-height: 40vh; overflow-y: auto;
+    background: rgba(0,0,0,0.85); color: #9f9; font: 12px/1.4 monospace; padding: 6px 10px;
+    white-space: pre-wrap; z-index: 9999; display: none;
+  }
+  #log.error-seen { display: block; }
+  #log .err { color: #f77; }
+  #status {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: #ccc; font: 16px/1.4 sans-serif; text-align: center; z-index: 10000;
+    transition: opacity 1s;
+  }
+</style>
+</head>
+<body>
+<canvas id="mindustry-canvas"></canvas>
+<div id="status">Booting CheerpJ...</div>
+<div id="log"></div>
+<script src="gl-shim.js"></script>
+<script src="sdl-shim.js"></script>
+<script src="stub-natives.js"></script>
+<script src="pixmap-shim.js"></script>
+<script src="buffers-shim.js"></script>
+<script src="freetype-shim.js"></script>
+<script src="web-bridge.js"></script>
+<script type="module">
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  function log(msg, isErr) {
+    const line = document.createElement('div');
+    if (isErr) line.className = 'err';
+    line.textContent = msg;
+    logEl.appendChild(line);
+    logEl.classList.add('error-seen');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.addEventListener('error', (e) => log('[window error] ' + e.message, true));
+  const origConsoleError = console.error.bind(console);
+  console.error = (...args) => { origConsoleError(...args); log(args.map(String).join(' '), true); };
+
+  window.mindustryCanvasElement = document.getElementById('mindustry-canvas');
+
+  const natives = Object.assign({}, window.GL_SHIM_NATIVES, window.SDL_SHIM_NATIVES, window.STUB_NATIVES, window.PIXMAP_SHIM_NATIVES, window.BUFFERS_SHIM_NATIVES, window.FREETYPE_SHIM_NATIVES, window.WEB_BRIDGE_NATIVES);
+  console.log('[harness] registered', Object.keys(natives).length, 'native shims');
+
+  // Freeze bisection: wrap every native with a call tracer, and heartbeat every 3s.
+  // If the page hard-freezes (synchronous infinite loop), heartbeats STOP - the last
+  // printed line names the native in flight when it died. If heartbeats continue but
+  // the game stalls, it's an async/logic stall instead - and the per-interval histogram
+  // shows exactly which natives dominate the stall.
+  //
+  // This wraps EVERY native call in an async fn + counter increment + Map lookup, which
+  // is measurable overhead when natives fire thousands of times a frame (every GL call,
+  // every buffer copy...). Keep this OFF for normal play; flip it on only when actively
+  // bisecting a freeze/stall or auditing native call volume.
+  const DEBUG_NATIVE_TRACING = false;
+
+  let nativeCalls = 0;
+  const shortName = (n) => n.replace(/^Java_[a-z]+_[A-Za-z0-9$_]+?_/, '').replace(/^arc_[a-z]+_00024[A-Za-z]+_/, '');
+  let intervalCounts = new Map();
+  const traced = {};
+  if (DEBUG_NATIVE_TRACING) {
+    for (const [name, fn] of Object.entries(natives)) {
+      traced[name] = async function (...args) {
+        nativeCalls++;
+        const s = shortName(name);
+        intervalCounts.set(s, (intervalCounts.get(s) || 0) + 1);
+        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0]; // for the file bridge
+        return fn.apply(this, args);
+      };
+    }
+    setInterval(() => {
+      const top = [...intervalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+        .map(([n, c]) => `${n}x${c}`).join(', ');
+      console.log(`[watchdog] alive; total=${nativeCalls}; this interval: ${top || 'no native calls'}`);
+      intervalCounts = new Map();
+    }, 3000);
+  } else {
+    // window.__RUNNING_LIB only backs the __toolbar diagnostics below (locateData,
+    // stackDump) - opt-in console tools, never on the hot path. Every native shim
+    // already receives its OWN `lib` handle as args[0] on every call, scoped to the
+    // actually-running JVM instance (see gl-shim.js's readBuffer(), pixmap-shim.js,
+    // buffers-shim.js, freetype-shim.js) - shim *behavior* never depended on
+    // window.__RUNNING_LIB, only these two debug helpers did. So instead of wrapping
+    // every native just to grab that handle once, piggyback on SDL_CreateWindow,
+    // which CheerpJ calls exactly once, early, to create the game window - one cheap
+    // wrapper, one call, then it's done; every other native goes straight through.
+    const createWindowKey = Object.keys(natives).find((n) => n.includes('SDL_1CreateWindow'));
+    if (createWindowKey) {
+      const origCreateWindow = natives[createWindowKey];
+      natives[createWindowKey] = function (...args) {
+        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0];
+        return origCreateWindow.apply(this, args);
+      };
+    } else {
+      console.warn('[harness] SDL_CreateWindow not found in natives; window.__RUNNING_LIB (toolbar diagnostics) will stay unset');
+    }
+  }
+
+  // Hide the boot status after 15s no matter what - cheerpjRunJar may not resolve
+  // until the game exits, and "Loading Mindustry.jar and starting..." shouldn't
+  // sit over the menu forever.
+  setTimeout(() => {
+    const s = document.getElementById('status');
+    if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 1000); }
+  }, 15000);
+
+  // ---- console diagnostics: window.__toolbar --------------------------------------
+  // The on-screen toolbar is gone; the diagnostics live as console functions:
+  //   __toolbar.locateData() - print where the game's files live (user.home, roots)
+  //   __toolbar.stackDump()  - print every Java thread's current stack (for freezes)
+  // Both await the running JVM's lib handle, captured once above (via the native
+  // tracer in debug mode, or the single SDL_CreateWindow hook otherwise).
+  window.__toolbar = {
+    async locateData() {
+      const lib = window.__RUNNING_LIB;
+      if (!lib) { console.warn('[toolbar] JVM not running yet'); return; }
+      const System = await lib.java.lang.System;
+      const home = await System.getProperty('user.home');
+      const cwd = await System.getProperty('user.dir');
+      console.log(`[toolbar] user.home=${home} user.dir=${cwd}`);
+      const File = await lib.java.io.File;
+      const roots = await File.listRoots(); // static, no args -> File[]
+      for (const root of roots) {
+        const rp = await root.getAbsolutePath();
+        let entries = null;
+        try { entries = await root.listFiles(); } catch (e) {}
+        const names = entries ? [] : null;
+        if (entries) for (const f of entries.slice(0, 50)) names.push(await f.getAbsolutePath());
+        console.log(`[toolbar] root ${rp}${names ? ':\n  ' + names.join('\n  ') : ' (empty/unreadable)'}`);
+      }
+      return { home, cwd };
+    },
+    async stackDump() {
+      const lib = window.__RUNNING_LIB;
+      if (!lib) { console.warn('[stackdump] JVM not running yet'); return; }
+      try {
+        const Thread = await lib.java.lang.Thread;
+        const map = await Thread.getAllStackTraces();
+        const text = await map.toString();
+        console.error('[stackdump] ' + text);
+        return text;
+      } catch (e) {
+        console.error('[stackdump] failed - if this hangs, the JVM dispatcher itself is blocked', e);
+        return null;
+      }
+    },
+  };
+
+  try {
+    statusEl.textContent = 'Initialising... (This takes a very long time if it is your first time loading, be patient!)';
+    await cheerpjInit({
+      // Mindustry.jar's *bytecode* targets Java 8, but DesktopLauncher.checkJavaVersion()
+      // does a runtime check requiring arc.util.OS.javaVersionNumber >= 17 (the "Java 25
+      // is required" message is misleading - the actual bytecode check is >= 17). CheerpJ
+      // reports its emulated version through that same property, so we ask for 17.
+      version: 17,
+      natives: DEBUG_NATIVE_TRACING ? traced : natives,
+    });
+
+    // Some native shims (pixmap-shim.js's Pixmap.loadJni, buffers-shim.js's
+    // newDisposableByteBuffer, freetype-shim.js's Bitmap.getBuffer) need to construct
+    // real Java objects (java.nio.ByteBuffer) rather than just returning
+    // primitives/typed-arrays. Every native call already receives a `lib` handle scoped
+    // to *this* running instance for that (see gl-shim.js's readBuffer(), which already
+    // used lib.getJNIDataView()) - that's what those shims use now, and it works for
+    // every class those shims actually touch. A separate cheerpjRunLibrary call used to
+    // sit here, eagerly awaited before display creation, purely as a fallback in case
+    // `lib.java.*` didn't expose what a shim needed. Awaiting it here meant every page
+    // load booted a *second* full JVM instance of the same jar before the game could
+    // even start - and real testing showed that instance doesn't even work as a
+    // fallback (handing its objects to the actually-running app produces a "CheerpJ:
+    // Invalid type conversion attempted" error, same family of issue as Round 2's
+    // SharedLibraryLoader library-mode problem). So it's now lazy: only spun up the
+    // first time a shim's primary `lib.java.*` path actually throws, instead of on
+    // every boot regardless of whether it's ever needed.
+    window.getCJLibFallback = () => {
+      if (!window.__cjLibPromise) {
+        console.warn('[harness] a shim fell back to the separate cheerpjRunLibrary instance - this is known to sometimes produce "Invalid type conversion attempted" errors, see index.html comments');
+        window.__cjLibPromise = cheerpjRunLibrary('/app/mindustry-web/Mindustry.jar');
+      }
+      return window.__cjLibPromise;
+    };
+
+    statusEl.textContent = 'Creating display...';
+    cheerpjCreateDisplay(-1, -1); // -1,-1: let CheerpJ size to the actual canvas
+
+    // Note: Mindustry.jar has been patched (arc/util/SharedLibraryLoader.class) so that
+    // load() is a no-op - see README.md "Progress log" for why and how. That means we
+    // don't need any JS-side workaround here anymore; a plain cheerpjRunJar is enough.
+    statusEl.textContent = 'Loading Mindustry...';
+    await cheerpjRunJar('/app/mindustry-web/Mindustry.jar');
+
+    statusEl.remove();
+  } catch (e) {
+    statusEl.textContent = '';
+    log('[fatal] ' + (e && e.stack || e), true);
+    console.error(e);
+  }
+</script>
+</body>
+</html>
