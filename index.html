@@ -1,212 +1,388 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Mindustry (Web port)</title>
-<script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
-<link rel="icon" href="./favicon.ico">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mindustry — Web Build</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  html, body { margin: 0; height: 100%; background: #101015; overflow: hidden; }
-  #mindustry-canvas { display: block; width: 100vw; height: 100vh; outline: none; }
-  #log {
-    position: fixed; left: 0; bottom: 0; right: 0; max-height: 40vh; overflow-y: auto;
-    background: rgba(0,0,0,0.85); color: #9f9; font: 12px/1.4 monospace; padding: 6px 10px;
-    white-space: pre-wrap; z-index: 9999; display: none;
+  :root{
+    --bg: #0F1216;
+    --bg-panel: #171B21;
+    --bg-panel-2: #1D232B;
+    --line: #2A313B;
+    --line-soft: #20262E;
+    --copper: #E8A33D;
+    --copper-dim: #B87F2B;
+    --teal: #48D3C4;
+    --teal-dim: #2E9C90;
+    --text: #E9ECEF;
+    --text-dim: #9AA4B2;
+    --text-faint: #5C6572;
+    --radius: 3px;
   }
-  #log.error-seen { display: block; }
-  #log .err { color: #f77; }
-  #status {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    color: #ccc; font: 16px/1.4 sans-serif; text-align: center; z-index: 10000;
-    transition: opacity 1s;
+
+  *{ margin:0; padding:0; box-sizing:border-box; }
+
+  html{ scroll-behavior:smooth; }
+
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(232,163,61,0.08), transparent 60%),
+      radial-gradient(ellipse 900px 500px at 90% 10%, rgba(72,211,196,0.06), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
+
+  /* blueprint grid overlay */
+  .grid-overlay{
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: linear-gradient(to bottom, black, transparent 85%);
+  }
+
+  .wrap{ position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  .mono{ font-family: 'JetBrains Mono', monospace; }
+
+  /* ---- nav ---- */
+  nav{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .brand{ display:flex; align-items:center; gap: 10px; }
+  .brand-mark{
+    width: 28px; height: 28px;
+    border: 1.5px solid var(--copper);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Chakra Petch'; font-weight:700; font-size: 13px; color: var(--copper);
+    transform: rotate(45deg);
+  }
+  .brand-mark span{ transform: rotate(-45deg); }
+  .brand-name{ font-family:'Chakra Petch'; font-weight:600; letter-spacing:0.04em; font-size:15px; }
+  .nav-tag{
+    font-size: 11px; color: var(--text-faint); letter-spacing: 0.12em; text-transform: uppercase;
+  }
+
+  /* ---- hero ---- */
+  .hero{ padding: 88px 0 64px; }
+  .eyebrow{
+    font-size: 12px; color: var(--copper); letter-spacing: 0.14em; text-transform: uppercase;
+    margin-bottom: 22px; display:flex; align-items:center; gap:10px;
+  }
+  .eyebrow::before{ content:''; width:22px; height:1px; background: var(--copper-dim); }
+
+  h1{
+    font-family: 'Chakra Petch', sans-serif;
+    font-weight: 700;
+    font-size: clamp(38px, 6vw, 66px);
+    line-height: 1.04;
+    letter-spacing: -0.01em;
+    max-width: 15ch;
+  }
+  h1 .accent{ color: var(--copper); }
+  h1 .accent2{ color: var(--teal); }
+
+  .hero-sub{
+    margin-top: 26px;
+    max-width: 56ch;
+    color: var(--text-dim);
+    font-size: 16px;
+  }
+  .hero-sub strong{ color: var(--text); font-weight: 500; }
+
+  /* ---- schematic diagram ---- */
+  .schematic{
+    margin-top: 64px;
+    padding-top: 4px;
+  }
+  .schematic svg{ width: 100%; height: auto; display:block; }
+  .flow-dash{
+    stroke-dasharray: 6 8;
+    animation: flow 1.4s linear infinite;
+  }
+  .flow-dash.slow{ animation-duration: 1.9s; }
+  @keyframes flow{ to{ stroke-dashoffset: -28; } }
+
+  @media (prefers-reduced-motion: reduce){
+    .flow-dash{ animation: none; }
+  }
+
+  /* ---- cards ---- */
+  .paths{
+    display:grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    margin-top: -2px;
+  }
+  @media (max-width: 760px){ .paths{ grid-template-columns: 1fr; } }
+
+  .card{
+    background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
+    border: 1px solid var(--line);
+    border-top: 2px solid var(--card-accent, var(--copper));
+    border-radius: var(--radius);
+    padding: 30px 28px 28px;
+    display:flex; flex-direction:column;
+    position: relative;
+    overflow:hidden;
+  }
+  .card::after{
+    content:'';
+    position:absolute; top:0; right:0; width:70px; height:70px;
+    background: radial-gradient(circle at top right, color-mix(in srgb, var(--card-accent, var(--copper)) 18%, transparent), transparent 70%);
+    pointer-events:none;
+  }
+  .card.online{ --card-accent: var(--copper); }
+  .card.offline{ --card-accent: var(--teal); }
+
+  .card-label{
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--card-accent);
+    display:flex; align-items:center; gap:8px;
+    margin-bottom: 14px;
+  }
+  .card-label .dot{ width:6px; height:6px; background: var(--card-accent); border-radius:50%; }
+
+  .card h2{
+    font-family:'Chakra Petch'; font-weight:600; font-size: 24px; letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .card-runtime{
+    font-size: 12.5px; color: var(--text-faint); margin-bottom: 18px;
+  }
+  .card-runtime b{ color: var(--text-dim); font-weight:500; }
+
+  .card p.desc{
+    font-size: 14.5px; color: var(--text-dim); margin-bottom: 20px;
+  }
+  .card p.desc code{
+    font-family:'JetBrains Mono'; font-size: 0.92em; color: var(--text);
+    background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 2px;
+  }
+
+  .chip-row{ display:flex; flex-wrap:wrap; gap: 8px; margin-bottom: 26px; }
+  .chip{
+    font-family:'JetBrains Mono'; font-size: 11px; color: var(--text-dim);
+    border: 1px solid var(--line); padding: 5px 9px; border-radius: 2px;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .cta{
+    margin-top: auto;
+    display:inline-flex; align-items:center; justify-content:center; gap: 8px;
+    padding: 13px 20px;
+    font-family:'Chakra Petch'; font-weight: 600; font-size: 14.5px; letter-spacing: 0.02em;
+    text-decoration:none;
+    border-radius: 2px;
+    transition: transform 0.15s ease, filter 0.15s ease;
+  }
+  .cta.primary{ background: var(--card-accent); color: #14171B; }
+  .cta.primary:hover{ filter: brightness(1.1); transform: translateY(-1px); }
+  .cta:active{ transform: translateY(0); }
+
+  /* ---- how it works table ---- */
+  .compare{ margin-top: 84px; }
+  .section-title{
+    font-family:'Chakra Petch'; font-weight:600; font-size: 20px; margin-bottom: 6px;
+  }
+  .section-sub{ color: var(--text-faint); font-size: 13.5px; margin-bottom: 28px; }
+
+  table{ width:100%; border-collapse: collapse; font-size: 13.5px; }
+  thead th{
+    text-align:left; font-family:'JetBrains Mono'; font-weight:500; font-size: 11px;
+    color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+  }
+  thead th:not(:first-child){ color: var(--card-accent); }
+  thead th.online{ color: var(--copper); }
+  thead th.offline{ color: var(--teal); }
+  tbody td{
+    padding: 14px 14px; border-bottom: 1px solid var(--line-soft);
+    color: var(--text-dim); vertical-align: top;
+  }
+  tbody td:first-child{ color: var(--text); font-weight:500; white-space:nowrap; }
+  tbody tr:last-child td{ border-bottom:none; }
+
+  /* ---- footer ---- */
+  footer{
+    margin-top: 90px; padding: 30px 0 60px;
+    border-top: 1px solid var(--line-soft);
+    display:flex; flex-wrap:wrap; gap: 14px 30px; justify-content:space-between; align-items:baseline;
+  }
+  footer p{ font-size: 12.5px; color: var(--text-faint); max-width: 60ch; }
+  footer a{ color: var(--text-dim); }
+  footer a:hover{ color: var(--copper); }
 </style>
 </head>
 <body>
-<canvas id="mindustry-canvas"></canvas>
-<div id="status">Booting CheerpJ...</div>
-<div id="log"></div>
-<script src="gl-shim.js"></script>
-<script src="sdl-shim.js"></script>
-<script src="stub-natives.js"></script>
-<script src="pixmap-shim.js"></script>
-<script src="buffers-shim.js"></script>
-<script src="freetype-shim.js"></script>
-<script src="web-bridge.js"></script>
-<script type="module">
-  const statusEl = document.getElementById('status');
-  const logEl = document.getElementById('log');
-  function log(msg, isErr) {
-    const line = document.createElement('div');
-    if (isErr) line.className = 'err';
-    line.textContent = msg;
-    logEl.appendChild(line);
-    logEl.classList.add('error-seen');
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-  window.addEventListener('error', (e) => log('[window error] ' + e.message, true));
-  const origConsoleError = console.error.bind(console);
-  console.error = (...args) => { origConsoleError(...args); log(args.map(String).join(' '), true); };
 
-  window.mindustryCanvasElement = document.getElementById('mindustry-canvas');
+<div class="grid-overlay"></div>
 
-  const natives = Object.assign({}, window.GL_SHIM_NATIVES, window.SDL_SHIM_NATIVES, window.STUB_NATIVES, window.PIXMAP_SHIM_NATIVES, window.BUFFERS_SHIM_NATIVES, window.FREETYPE_SHIM_NATIVES, window.WEB_BRIDGE_NATIVES);
-  console.log('[harness] registered', Object.keys(natives).length, 'native shims');
+<div class="wrap">
 
-  // Freeze bisection: wrap every native with a call tracer, and heartbeat every 3s.
-  // If the page hard-freezes (synchronous infinite loop), heartbeats STOP - the last
-  // printed line names the native in flight when it died. If heartbeats continue but
-  // the game stalls, it's an async/logic stall instead - and the per-interval histogram
-  // shows exactly which natives dominate the stall.
-  //
-  // This wraps EVERY native call in an async fn + counter increment + Map lookup, which
-  // is measurable overhead when natives fire thousands of times a frame (every GL call,
-  // every buffer copy...). Keep this OFF for normal play; flip it on only when actively
-  // bisecting a freeze/stall or auditing native call volume.
-  const DEBUG_NATIVE_TRACING = false;
+  <nav>
+    <div class="brand">
+      <div class="brand-mark"><span>M</span></div>
+      <div class="brand-name">MINDUSTRY // WEB</div>
+    </div>
+    <div class="nav-tag mono">unofficial browser build</div>
+  </nav>
 
-  let nativeCalls = 0;
-  const shortName = (n) => n.replace(/^Java_[a-z]+_[A-Za-z0-9$_]+?_/, '').replace(/^arc_[a-z]+_00024[A-Za-z]+_/, '');
-  let intervalCounts = new Map();
-  const traced = {};
-  if (DEBUG_NATIVE_TRACING) {
-    for (const [name, fn] of Object.entries(natives)) {
-      traced[name] = async function (...args) {
-        nativeCalls++;
-        const s = shortName(name);
-        intervalCounts.set(s, (intervalCounts.get(s) || 0) + 1);
-        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0]; // for the file bridge
-        return fn.apply(this, args);
-      };
-    }
-    setInterval(() => {
-      const top = [...intervalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
-        .map(([n, c]) => `${n}x${c}`).join(', ');
-      console.log(`[watchdog] alive; total=${nativeCalls}; this interval: ${top || 'no native calls'}`);
-      intervalCounts = new Map();
-    }, 3000);
-  } else {
-    // window.__RUNNING_LIB only backs the __toolbar diagnostics below (locateData,
-    // stackDump) - opt-in console tools, never on the hot path. Every native shim
-    // already receives its OWN `lib` handle as args[0] on every call, scoped to the
-    // actually-running JVM instance (see gl-shim.js's readBuffer(), pixmap-shim.js,
-    // buffers-shim.js, freetype-shim.js) - shim *behavior* never depended on
-    // window.__RUNNING_LIB, only these two debug helpers did. So instead of wrapping
-    // every native just to grab that handle once, piggyback on SDL_CreateWindow,
-    // which CheerpJ calls exactly once, early, to create the game window - one cheap
-    // wrapper, one call, then it's done; every other native goes straight through.
-    const createWindowKey = Object.keys(natives).find((n) => n.includes('SDL_1CreateWindow'));
-    if (createWindowKey) {
-      const origCreateWindow = natives[createWindowKey];
-      natives[createWindowKey] = function (...args) {
-        if (!window.__RUNNING_LIB && args[0]) window.__RUNNING_LIB = args[0];
-        return origCreateWindow.apply(this, args);
-      };
-    } else {
-      console.warn('[harness] SDL_CreateWindow not found in natives; window.__RUNNING_LIB (toolbar diagnostics) will stay unset');
-    }
-  }
+  <section class="hero">
+    <div class="eyebrow mono">play it your way</div>
+    <h1>Mindustry, compiled<br>for the <span class="accent">browser</span> and for <span class="accent2">offline</span> play.</h1>
+    <p class="hero-sub">
+      This project ships the same factory-defense sandbox two ways: one that <strong>runs the actual
+      game directly in your browser</strong> using a patched JVM, and one that <strong>compiles a
+      standalone build</strong> you can save and run without a connection. Pick a lane below.
+    </p>
 
-  // Hide the boot status after 15s no matter what - cheerpjRunJar may not resolve
-  // until the game exits, and "Loading Mindustry.jar and starting..." shouldn't
-  // sit over the menu forever.
-  setTimeout(() => {
-    const s = document.getElementById('status');
-    if (s) { s.style.opacity = '0'; setTimeout(() => s.remove(), 1000); }
-  }, 15000);
+    <!-- signature schematic: source splitting into two runtime paths -->
+    <div class="schematic">
+      <svg viewBox="0 0 1000 170" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- source node -->
+        <rect x="420" y="8" width="160" height="34" fill="none" stroke="#3A424D" stroke-width="1"/>
+        <text x="500" y="29" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#9AA4B2">MINDUSTRY SOURCE</text>
 
-  // ---- console diagnostics: window.__toolbar --------------------------------------
-  // The on-screen toolbar is gone; the diagnostics live as console functions:
-  //   __toolbar.locateData() - print where the game's files live (user.home, roots)
-  //   __toolbar.stackDump()  - print every Java thread's current stack (for freezes)
-  // Both await the running JVM's lib handle, captured once above (via the native
-  // tracer in debug mode, or the single SDL_CreateWindow hook otherwise).
-  window.__toolbar = {
-    async locateData() {
-      const lib = window.__RUNNING_LIB;
-      if (!lib) { console.warn('[toolbar] JVM not running yet'); return; }
-      const System = await lib.java.lang.System;
-      const home = await System.getProperty('user.home');
-      const cwd = await System.getProperty('user.dir');
-      console.log(`[toolbar] user.home=${home} user.dir=${cwd}`);
-      const File = await lib.java.io.File;
-      const roots = await File.listRoots(); // static, no args -> File[]
-      for (const root of roots) {
-        const rp = await root.getAbsolutePath();
-        let entries = null;
-        try { entries = await root.listFiles(); } catch (e) {}
-        const names = entries ? [] : null;
-        if (entries) for (const f of entries.slice(0, 50)) names.push(await f.getAbsolutePath());
-        console.log(`[toolbar] root ${rp}${names ? ':\n  ' + names.join('\n  ') : ' (empty/unreadable)'}`);
-      }
-      return { home, cwd };
-    },
-    async stackDump() {
-      const lib = window.__RUNNING_LIB;
-      if (!lib) { console.warn('[stackdump] JVM not running yet'); return; }
-      try {
-        const Thread = await lib.java.lang.Thread;
-        const map = await Thread.getAllStackTraces();
-        const text = await map.toString();
-        console.error('[stackdump] ' + text);
-        return text;
-      } catch (e) {
-        console.error('[stackdump] failed - if this hangs, the JVM dispatcher itself is blocked', e);
-        return null;
-      }
-    },
-  };
+        <!-- trunk down -->
+        <line x1="500" y1="42" x2="500" y2="66" stroke="#3A424D" stroke-width="1"/>
 
-  try {
-    statusEl.textContent = 'Initialising... (This takes a very long time if it is your first time loading, be patient!)';
-    await cheerpjInit({
-      // Mindustry.jar's *bytecode* targets Java 8, but DesktopLauncher.checkJavaVersion()
-      // does a runtime check requiring arc.util.OS.javaVersionNumber >= 17 (the "Java 25
-      // is required" message is misleading - the actual bytecode check is >= 17). CheerpJ
-      // reports its emulated version through that same property, so we ask for 17.
-      version: 17,
-      natives: DEBUG_NATIVE_TRACING ? traced : natives,
-    });
+        <!-- split junction -->
+        <path d="M 190 66 H 810" stroke="#3A424D" stroke-width="1"/>
+        <circle cx="500" cy="66" r="2.5" fill="#5C6572"/>
 
-    // Some native shims (pixmap-shim.js's Pixmap.loadJni, buffers-shim.js's
-    // newDisposableByteBuffer, freetype-shim.js's Bitmap.getBuffer) need to construct
-    // real Java objects (java.nio.ByteBuffer) rather than just returning
-    // primitives/typed-arrays. Every native call already receives a `lib` handle scoped
-    // to *this* running instance for that (see gl-shim.js's readBuffer(), which already
-    // used lib.getJNIDataView()) - that's what those shims use now, and it works for
-    // every class those shims actually touch. A separate cheerpjRunLibrary call used to
-    // sit here, eagerly awaited before display creation, purely as a fallback in case
-    // `lib.java.*` didn't expose what a shim needed. Awaiting it here meant every page
-    // load booted a *second* full JVM instance of the same jar before the game could
-    // even start - and real testing showed that instance doesn't even work as a
-    // fallback (handing its objects to the actually-running app produces a "CheerpJ:
-    // Invalid type conversion attempted" error, same family of issue as Round 2's
-    // SharedLibraryLoader library-mode problem). So it's now lazy: only spun up the
-    // first time a shim's primary `lib.java.*` path actually throws, instead of on
-    // every boot regardless of whether it's ever needed.
-    window.getCJLibFallback = () => {
-      if (!window.__cjLibPromise) {
-        console.warn('[harness] a shim fell back to the separate cheerpjRunLibrary instance - this is known to sometimes produce "Invalid type conversion attempted" errors, see index.html comments');
-        window.__cjLibPromise = cheerpjRunLibrary('/app/mindustry-web/Mindustry.jar');
-      }
-      return window.__cjLibPromise;
-    };
+        <!-- left branch (online / copper) -->
+        <path d="M 190 66 V 100" stroke="#B87F2B" stroke-width="1.5" class="flow-dash"/>
+        <line x1="190" y1="66" x2="190" y2="66" />
+        <path d="M 190 66 V 100" stroke="#B87F2B" stroke-width="1.5" fill="none"/>
 
-    statusEl.textContent = 'Creating display...';
-    cheerpjCreateDisplay(-1, -1); // -1,-1: let CheerpJ size to the actual canvas
+        <!-- right branch (offline / teal) -->
+        <path d="M 810 66 V 100" stroke="#2E9C90" stroke-width="1.5" class="flow-dash slow"/>
 
-    // Note: Mindustry.jar has been patched (arc/util/SharedLibraryLoader.class) so that
-    // load() is a no-op - see README.md "Progress log" for why and how. That means we
-    // don't need any JS-side workaround here anymore; a plain cheerpjRunJar is enough.
-    statusEl.textContent = 'Loading Mindustry...';
-    await cheerpjRunJar('/app/mindustry-web/Mindustry.jar');
+        <!-- horizontal connector segments to node centers -->
+        <path d="M 500 42 L 500 66" stroke="#3A424D" stroke-width="1"/>
 
-    statusEl.remove();
-  } catch (e) {
-    statusEl.textContent = '';
-    log('[fatal] ' + (e && e.stack || e), true);
-    console.error(e);
-  }
-</script>
+        <!-- online node -->
+        <rect x="90" y="100" width="200" height="40" fill="#171B21" stroke="#B87F2B" stroke-width="1.2"/>
+        <text x="190" y="118" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#E8A33D" letter-spacing="1">ONLINE — CHEERPJ</text>
+        <text x="190" y="132" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">patched bytecode, runs in-browser</text>
+
+        <!-- offline node -->
+        <rect x="710" y="100" width="200" height="40" fill="#171B21" stroke="#2E9C90" stroke-width="1.2"/>
+        <text x="810" y="118" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#48D3C4" letter-spacing="1">OFFLINE — TEAVM</text>
+        <text x="810" y="132" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">modified Arc, one .html file</text>
+      </svg>
+    </div>
+
+    <div class="paths">
+
+      <!-- ONLINE CARD -->
+      <div class="card online">
+        <div class="card-label mono"><span class="dot"></span>PATH 01 — PLAY NOW</div>
+        <h2>Play in your browser</h2>
+        <div class="card-runtime mono">RUNTIME: <b>CheerpJ</b></div>
+        <p class="desc">
+          This build runs the real Mindustry <code>.jar</code> — not a rewrite. CheerpJ compiles a
+          JVM to WebAssembly and executes the game's original bytecode directly in the tab. Because the
+          desktop game expects a desktop windowing and input stack, the bytecode is patched post-compile:
+          LWJGL display, input, and file-access calls are rerouted to browser-side equivalents (canvas,
+          pointer/keyboard events, virtual storage) so the class files behave correctly without touching
+          the original Java source.
+        </p>
+        <div class="chip-row">
+          <span class="chip">no install</span>
+          <span class="chip">bytecode-patched, not source-modified</span>
+          <span class="chip">requires connection</span>
+        </div>
+        <a href="./onlinemode/" class="cta primary">Launch the game →</a>
+      </div>
+
+      <!-- OFFLINE CARD -->
+      <div class="card offline">
+        <div class="card-label mono"><span class="dot"></span>PATH 02 — DOWNLOAD</div>
+        <h2>Take it offline</h2>
+        <div class="card-runtime mono">RUNTIME: <b>TeaVM</b></div>
+        <p class="desc">
+          This build starts further upstream. <code>Arc</code>, the engine Mindustry itself is built on,
+          is forked and modified so its rendering, audio, and I/O layers target the web instead of desktop
+          backends. That modified engine — plus the game code — is then ahead-of-time compiled from Java to
+          JavaScript with TeaVM. The result is bundled with all assets into a single self-contained
+          <code>.html</code> file: open it in any browser, no server, JVM, or network required after download.
+        </p>
+        <div class="chip-row">
+          <span class="chip">single .html file</span>
+          <span class="chip">modified Arc engine</span>
+          <span class="chip">fully offline after download</span>
+        </div>
+        <a href="#" class="cta primary">Download .html →</a>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="compare">
+    <div class="section-title">Which one am I getting?</div>
+    <div class="section-sub">Same game, different pipeline from Java to your screen.</div>
+    <table>
+      <thead>
+        <tr>
+          <th>&nbsp;</th>
+          <th class="online mono">Online — CheerpJ</th>
+          <th class="offline mono">Offline — TeaVM</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>What's compiled</td>
+          <td>Unmodified Mindustry <code class="mono">.jar</code> bytecode, patched post-build for browser I/O</td>
+          <td>A modified fork of Arc + Mindustry, compiled from source</td>
+        </tr>
+        <tr>
+          <td>Compilation target</td>
+          <td>JVM → WebAssembly, executed live</td>
+          <td>Java → JavaScript, ahead-of-time</td>
+        </tr>
+        <tr>
+          <td>Where it runs</td>
+          <td>Runs directly in the browser tab (requires internet)</td>
+          <td>Downloaded once, opened locally</td>
+        </tr>
+        <tr>
+          <td>Connection needed</td>
+          <td>Yes, while playing</td>
+          <td>Only to download</td>
+        </tr>
+        <tr>
+          <td>Best for</td>
+          <td>Jumping in immediately</td>
+          <td>LAN parties, flaky wifi, keeping a copy</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <p>
+      Unofficial, fan-made web build. Mindustry is developed by Anuken and contributors and distributed
+      under the GNU GPLv3; Arc is the engine it's built on. This project modifies both for browser
+      compatibility and is not affiliated with the original authors.
+    </p>
+    <p class="mono"><a href="#">source</a> &nbsp;·&nbsp; <a href="#">original Mindustry repo</a></p>
+  </footer>
+
+</div>
+
 </body>
 </html>
