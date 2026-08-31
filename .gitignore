@@ -1,2 +1,74 @@
-Mindustry.jar.bak*
 save*
+# Dependencies
+node_modules/
+vendor/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Build output
+dist/
+build/
+out/
+target/
+
+# Cache
+.cache/
+.tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Java
+*.class
+*.jar
+.gradle/
+build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Local configuration
+config.local.*
+*.local
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Backup files
+*.bak
+*.backup
+backups/
+
+# Secrets / keys
+*.pem
+*.key
+*.crt
+
+# Misc
+.DS_Store
