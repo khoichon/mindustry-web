@@ -320,6 +320,14 @@
           backends. That modified engine — plus the game code — is then ahead-of-time compiled from Java to
           JavaScript with TeaVM. The result is bundled with all assets into a single self-contained
           <code>.html</code> file: open it in any browser, no server, JVM, or network required after download.
+          <footer>Why doesn't the offline build work?
+
+Because I haven't finished making it yet.
+
+The offline build is currently <strong>in development</strong>. The online/CheerpJ version and the offline/TeaVM version use different build pipelines, and getting the latter working requires porting and adapting parts of Mindustry's Java/Arc stack for TeaVM.
+
+If you're seeing this message, congratulations: you're waiting for me to finish fighting the Java ecosystem.
+</footer>
         </p>
         <div class="chip-row">
           <span class="chip">single .html file</span>
