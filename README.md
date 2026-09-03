@@ -1,128 +1,224 @@
-# Mindustry in the browser (CheerpJ + custom SDL/GL/audio/font shims)
+# Mindustry in the Browser
 
-## What this is
-Runs the **unmodified** `Mindustry.jar` (v158.1, straight from GitHub releases) inside
-a WebAssembly JVM (CheerpJ), with hand-written JavaScript replacements for the native
-libraries Arc (Mindustry's framework) normally loads as `.so`/`.dll` files:
+An unofficial web port of [Mindustry](https://github.com/Anuken/Mindustry) with two separate browser builds:
 
-| Native lib (desktop)      | Shim file          | Status                                   |
-|----------------------------|--------------------|-------------------------------------------|
-| SDL (window/input/events)  | `sdl-shim.js`       | Implemented                              |
-| SDL_GL (OpenGL ES 3)       | `gl-shim.js`        | Implemented, some overload risk (see below) |
-| SoLoud (audio)              | `stub-natives.js`   | Implemented via Web Audio (no DSP filters yet) |
-| FreeType (fonts)            | `stub-natives.js`   | **Stubbed only** - no text will render yet |
+* **Online / CheerpJ** — runs the actual Mindustry JAR inside a WebAssembly JVM.
+* **Offline / TeaVM** — compiles a modified Arc + Mindustry directly to JavaScript, with the goal of producing a completely self-contained HTML file.
 
-No Box2D shim needed - Mindustry doesn't use it.
+**Play:** https://khoichon.dev/mindustry-web/
 
-## Running it
-CheerpJ needs to load the jar over HTTP(S), so `file://` won't work. From this folder:
+---
 
+## How it works
+
+This project takes two different approaches to getting Mindustry running on the web.
+
+```text
+                         Mindustry
+                            source
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+          Online / CheerpJ          Offline / TeaVM
+                 │                         │
+        Mindustry.jar + patches      Modified Arc
+                 │                    + Mindustry
+                 ▼                         │
+          CheerpJ JVM → WASM               ▼
+                 │                  TeaVM → JavaScript
+                 │                         │
+                 ▼                         ▼
+            Browser tab              Single HTML file
 ```
+
+The two builds are **not the same implementation**. They exist as separate pipelines with different goals and trade-offs.
+
+---
+
+## Online build — CheerpJ
+
+The online version runs the **actual Mindustry `.jar`** rather than reimplementing the game in JavaScript.
+
+[CheerpJ](https://cheerpj.com/) provides a JVM implemented using WebAssembly, allowing the game's Java bytecode to execute inside the browser.
+
+However, Mindustry's desktop build expects native libraries and desktop APIs that aren't available in a browser. The JAR is therefore patched after compilation, and browser-side JavaScript shims provide replacements for the native functionality that the game expects.
+
+Current shims include functionality for:
+
+* SDL windowing and input
+* OpenGL / WebGL rendering
+* Audio through Web Audio
+* FreeType/font handling
+* Pixmap/image loading
+* Buffer and mesh allocation
+* Browser-compatible storage and file handling
+
+The goal is to make the original desktop bytecode behave as if the required desktop/native environment exists.
+
+### Requirements
+
+The online build requires:
+
+* A modern browser
+* WebAssembly
+* WebGL2
+* An internet connection while playing
+
+Chrome/Chromium is currently the primary target and has the best compatibility with the CheerpJ-based build.
+
+The JAR and CheerpJ runtime are loaded over HTTP(S), so opening the build directly with `file://` is not supported.
+
+---
+
+## Offline build — TeaVM
+
+The offline build takes a completely different approach.
+
+Instead of executing the desktop JAR inside a JVM, the project works further upstream by modifying **Arc**, the engine Mindustry is built on.
+
+The modified Arc engine provides web-compatible implementations for functionality such as:
+
+* Rendering
+* Audio
+* Input
+* File/I/O operations
+* Other platform-dependent functionality
+
+The modified engine is then built together with Mindustry using **TeaVM**, compiling the Java code ahead-of-time into JavaScript.
+
+The eventual result is intended to be:
+
+> **One self-contained `.html` file containing the game and its assets.**
+
+Once downloaded, the file should be able to run locally without:
+
+* A server
+* A JVM
+* An internet connection
+
+In other words:
+
+```text
+Download mindustry.html
+        │
+        ▼
+Double-click it
+        │
+        ▼
+Play Mindustry
+        │
+        └── No internet required
+```
+
+### Current status
+
+**The offline build is still in development.**
+
+It is not currently considered complete or production-ready. The TeaVM pipeline requires additional work to adapt parts of Mindustry and Arc that were originally designed around desktop Java/runtime behavior.
+
+The online CheerpJ build and the offline TeaVM build should therefore be considered **separate projects sharing the same goal**, rather than one being a different version of the other.
+
+---
+
+## Current limitations
+
+This is an experimental port, so some things are expected to break.
+
+Known issues include:
+
+* The minimap currently does not display correctly.
+* Some mods crash during startup.
+* External save-file importing has compatibility issues with some campaign progression data.
+* Browser compatibility varies between engines.
+
+If something breaks, **the browser console is usually the first place to look**.
+
+---
+
+## Development
+
+The repository contains the browser-side shims and tooling used by the CheerpJ build, as well as the work-in-progress components for the TeaVM/offline build.
+
+Some of the more interesting pieces include:
+
+* `sdl-shim.js` — browser implementation of SDL functionality
+* `gl-shim.js` — OpenGL/WebGL compatibility layer
+* `freetype-shim.js` — FreeType compatibility
+* `pixmap-shim.js` — browser-side image decoding
+* `buffers-shim.js` — buffer/memory functionality
+* `web-bridge.js` — browser ↔ Java runtime integration
+* `stub-natives.js` — native-function replacements
+
+The project involves a mixture of Java bytecode patching, JavaScript/WASM interop, browser APIs, and modifications to the Arc engine.
+
+Because this is experimental, some parts of the implementation are intentionally rough and subject to change.
+
+---
+
+## Running locally
+
+For the CheerpJ build, serve the repository over HTTP rather than opening `index.html` directly:
+
+```bash
 python3 -m http.server 8080
 ```
 
-Then open **http://localhost:8080/** in a recent **Chrome** (WebGL2 + WebAssembly required;
-Chrome has the best CheerpJ compatibility right now). Open DevTools console before loading -
-that's where every error will show up, and there's also an on-page error log at the bottom
-of the window for anything that reaches `console.error`/an uncaught exception.
+Then open:
 
-First load will be slow (CheerpJ fetches a JVM runtime + the 81MB jar).
+```text
+http://localhost:8080/
+```
 
-## Progress log
-1. ~~"Java 25 is required" error~~ - fixed. `DesktopLauncher.checkJavaVersion()` actually
-   just checks `arc.util.OS.javaVersionNumber >= 17` (disassembled with `javap` to confirm) -
-   the "25" in the message is just alarmist wording. Set `cheerpjInit({version: 17})`.
-2. ~~`Couldn't load shared library 'libarc.so'`~~ - fixed, see below.
+A browser with good WebAssembly/WebGL2 support is recommended.
 
-### About the native-library-loading fix
-The crash came from Arc's `SharedLibraryLoader` trying to extract and `System.load()` a
-real x86 `.so` file - something that can never work in a WebAssembly JVM, no OS to
-`dlopen()` into.
+---
 
-**First attempt (didn't work):** called Arc's own `SharedLibraryLoader.setLoaded(name)`
-escape hatch via CheerpJ's library mode (`cheerpjRunLibrary`) before starting the game with
-`cheerpjRunMain`, hoping that "loaded" flag would carry over into the actual run. It didn't -
-the exact same crash came back, meaning `cheerpjRunLibrary` and `cheerpjRunMain`/`cheerpjRunJar`
-apparently don't share the same static class state after all (or at least not reliably).
+## Why two builds?
 
-**What actually worked:** patched `arc/util/SharedLibraryLoader.class` directly, inside
-`Mindustry.jar` itself, so `load(String)` is unconditionally a no-op (single `return`
-instruction, `0xB1`). This required:
-- `jawa` (pure-Python JVM classfile library, `pip install jawa`) to read/write the classfile
-- A from-scratch `StackMapTableAttribute.pack()` implementation, monkey-patched in - jawa can
-  *read* stack maps but its own `pack()` is a bare `raise NotImplementedError()`, so any class
-  containing one (nearly all Java 7+ bytecode) can't be saved without this
-- Clearing the patched method's now-stale exception table / line-number table / local-variable
-  table / stack-map-table, since they referenced byte offsets from the original ~124-byte
-  method body that no longer exist once it's a single instruction
-- **Verification against a real JDK 21 (`java -Xverify:all`)**, not just CheerpJ, to confirm
-  the patched class actually passes strict bytecode verification and behaves as a no-op
-  before ever loading it in a browser
-- Injecting the patched `.class` back into `Mindustry.jar` with `zip` (same relative path,
-  so it replaces rather than duplicates the entry) and byte-diffing the result to confirm
+The two approaches solve different problems.
 
-This patch is already baked into the `Mindustry.jar` in this folder - `index.html` now just
-calls `cheerpjRunJar` directly, no JS-side workaround needed.
+|              | Online — CheerpJ            | Offline — TeaVM                 |
+| ------------ | --------------------------- | ------------------------------- |
+| Runtime      | CheerpJ JVM                 | JavaScript                      |
+| Compilation  | JVM → WebAssembly           | Java → JavaScript               |
+| Game source  | Original Mindustry bytecode | Modified Arc + Mindustry source |
+| Native code  | Replaced with browser shims | Ported/adapted to web           |
+| Internet     | Required while playing      | Only needed to download         |
+| Installation | None                        | None                            |
+| Output       | Browser application         | Self-contained HTML             |
+| Status       | Playable                    | In development                  |
 
-## What's likely to come up next, in rough order
-1. **GL overload resolution.** SDLGL.java has ~15 overloaded native methods (e.g.
-   `glDrawElements` has both an `int offset` and a `Buffer` version). CheerpJ, like real
-   JNI, may require the *mangled* long name to disambiguate these instead of the short
-   name I registered. If rendering is garbled/missing or the console shows an "unresolved
-   native" error for one of these, see the **OVERLOAD NOTES** comment block at the bottom
-   of `gl-shim.js` - it has the exact mangled names precomputed and ready to add.
-2. **No text rendering.** FreeType is fully stubbed right now (see the TODO block in
-   `stub-natives.js`) - the game will very likely get stuck as soon as it needs to
-   render its first piece of UI text. This is the next real chunk of work.
-3. Anything else that shows up as `[gl-shim] unimplemented GL call: ...` in the console -
-   means Mindustry called something outside the ~150 GL functions I implemented; tell me
-   the name and I'll add it.
-4. If another class hits the same "can't System.load a real .so" problem via a different
-   code path (a fresh `UnsatisfiedLinkError` or native-extraction crash naming a different
-   class), it's the same family of issue - the same bytecode-patch technique applies.
-5. More native classes we haven't hit yet may show up as fresh `UnsatisfiedLinkError`s the
-   same way `arc.util.Buffers` did (round 4, below) - each is usually a small, contained
-   addition once we know the exact method signatures from Arc's source.
+The CheerpJ build is the practical **"get Mindustry running in a browser now"** approach.
 
-## Round 4: Pixmap (image decoding) + Buffers (mesh/VBO allocation)
-Got past window/GL/icon init and into real game asset loading - `initIcon()`'s failure
-turned out to be non-fatal (Arc logs and moves on), and execution reached
-`ClientLauncher.setup()` building the planet-select 3D mesh. Two things came up:
+The TeaVM build is the much more ambitious **"put Mindustry into one HTML file and take it anywhere"** approach.
 
-**Pixmap type-conversion bug.** The `loadJni` implementation in `pixmap-shim.js` (added
-last round to decode PNGs via the browser instead of stb_image) hit `CheerpJ: Invalid type
-conversion attempted`, which cascaded into an `ArrayIndexOutOfBoundsException` back in
-`Pixmap.load()`. Root cause: constructing the return `ByteBuffer` via
-`ByteBuffer.allocateDirect(n)` followed by an instance-method call `buf.put(typedArray)` -
-passing a JS typed array as an argument to an *instance* method apparently isn't converted
-the same way CheerpJ converts array arguments to a *static* factory call. Switched to
-`ByteBuffer.wrap(byteArray)` - a single static call - which fixed it, and has a nice side
-effect: `wrap()` produces an array-backed buffer, which is exactly what `gl-shim.js`'s
-`readBuffer()` needs later when this pixel data gets uploaded as a texture (a real
-`allocateDirect()` buffer would *not* have been array-backed, and would have silently
-failed that later read).
+---
 
-**New native class: `arc.util.Buffers`.** Needed for `Mesh`/`VertexBufferObjectWithVAO`
-allocation (`newDisposableByteBuffer`, `getBufferAddress`, `freeMemory`, `clear`) - see
-`buffers-shim.js`. Same array-backed-buffer strategy as the Pixmap fix, for the same
-reason. Deliberately did **not** implement `Buffers.copyJni`'s several overloads - Arc's
-own code (`Pixmap.copyMem()` and friends) prefers `Java16Buffers.copy()` (a plain
-`dst.put(src, ...)` call, zero native code) whenever `OS.javaVersionNumber >= 16`, which is
-always true for us since we report Java 17 - so that JNI path should never actually be
-reached. If a `copyJni` `UnsatisfiedLinkError` shows up anyway, that assumption was wrong
-and those need implementing too.
+## Disclaimer
 
-## How to iterate
-Paste back whatever shows up in the DevTools console (or the on-page red log) and I'll
-patch the relevant shim directly - I can't run a browser myself, so you're the only one
-who can actually see these errors, but each one should be a quick, surgical fix once we
-know what it is.
+This is an unofficial, fan-made project.
 
-> **Update (Round 15)**: this README's per-fix entries stop at the early rounds;
-> `HANDOFF.md` is the up-to-date consolidated log. Latest state: browser test reached
-> the loading screen's 2nd frame, then hit the FreeType-init crash - root-caused to
-> CheerpJ marshalling scalar `long` as JS Number (BigInt returns read as 0), plus a
-> jar-vs-repo native-name drift (`Soloud.wavLoad`) that would have been the next
-> crash. Both fixed, plus dispose-path NPEs nop'd out of the jar and a stale
-> StackMapTable from the earlier net patches repaired (`java -Xverify:all` now clean).
-> Not yet re-tested in a browser.
+Mindustry is developed by **Anuken and contributors** and is distributed under the **GNU General Public License v3.0**.
+
+Arc is the engine used by Mindustry.
+
+This project is not affiliated with or endorsed by the original Mindustry developers.
+
+---
+
+## Links
+
+* **Web build:** https://khoichon.dev/mindustry-web/
+* **Mindustry:** https://github.com/Anuken/Mindustry
+* **Arc:** https://github.com/Anuken/Arc
+
+---
+
+### Project status
+
+> 🚧 **Experimental**
+>
+> The browser build is functional, while the standalone offline build is still being developed.
+>
+> If you do notice any issues, do report them in the [Issues tab](https://github.com/khoichon/mindustry-web/issues/new). 
