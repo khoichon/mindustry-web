@@ -11,6 +11,11 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  MINDUSTRY_REPO: khoichon/mindustry-web
+  MINDUSTRY_BRANCH: main
+  MINDUSTRY_JAR_URL: https://github.com/Anuken/Mindustry/releases/download/v159.7/Mindustry.jar
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,6 +23,76 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Checkout mindustry-web source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MINDUSTRY_REPO }}
+          ref: ${{ env.MINDUSTRY_BRANCH }}
+          submodules: recursive
+          path: mindustry-web
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download Mindustry.jar
+        working-directory: mindustry-web
+        run: |
+          curl \
+            --fail \
+            --location \
+            --retry 3 \
+            --progress-bar \
+            -o mindustry.jar \
+            "${{ env.MINDUSTRY_JAR_URL }}"
+
+          ls -lh mindustry.jar
+
+      - name: Build TeaVM offline port
+        working-directory: mindustry-web/offlinemode
+        run: |
+          chmod +x ./gradlew
+          ./gradlew \
+            --no-daemon \
+            :backend-teavm:buildStandalone \
+            "-Dorg.gradle.java.home=$JAVA_HOME"
+
+      - name: Verify build output
+        run: |
+          STANDALONE="mindustry-web/offlinemode/backend-teavm/build/web/mindustry-standalone.html"
+          WEB_DIR="mindustry-web/offlinemode/backend-teavm/build/web"
+
+          [[ -f "$STANDALONE" ]] || { echo "::error::Standalone build was not created: $STANDALONE"; exit 1; }
+          [[ -d "$WEB_DIR" ]] || { echo "::error::Web build directory was not created: $WEB_DIR"; exit 1; }
+
+      - name: Stage standalone HTML
+        run: |
+          cp "mindustry-web/offlinemode/backend-teavm/build/web/mindustry-standalone.html" \
+             "./mindustry-offline.html"
+
+      - name: Package web build
+        run: |
+          WEB_DIR="mindustry-web/offlinemode/backend-teavm/build/web"
+
+          # The standalone HTML is included in the web directory by the
+          # Gradle build, but only the normal servable web build should
+          # ship in the zip.
+          rm -f "$WEB_DIR/mindustry-standalone.html"
+
+          (cd "$WEB_DIR" && zip -qr "$GITHUB_WORKSPACE/mindustry-offline.zip" .)
+          ls -lh mindustry-offline.zip
+
+      - name: Unpack web build to offlinemode/build
+        run: |
+          mkdir -p offlinemode/build
+          unzip -o mindustry-offline.zip -d offlinemode/build
+          ls offlinemode/build/index.html
+
+      - name: Clean up cloned source
+        run: rm -rf mindustry-web
 
       - name: Download latest release
         env:
