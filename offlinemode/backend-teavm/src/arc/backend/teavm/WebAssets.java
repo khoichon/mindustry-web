@@ -17,7 +17,11 @@ import org.teavm.jso.typedarrays.Uint8Array;
  * (text), which silently corrupts binary data -- PNGs, the packed sprite
  * atlas, fonts, .msav maps. Instead, the Gradle build extracts the asset
  * tree next to the generated JS as plain static files and writes
- * asset-manifest.txt listing every file.
+ * asset-manifest.txt listing every file ("path\tsize" -- the sizes let the
+ * browser-side cache detect same-name content changes). A small worker
+ * pool prefetches the manifest; on repeat visits entries resolve from an
+ * IndexedDB cache (see index.html -- no service worker) keyed by a hash of
+ * the manifest text, so only the first visit pays the full download.
  *
  * At boot (before ApplicationListener.init, alongside IdbVfs.init) the
  * manifest is fetched and every non-music entry is fetched into an
@@ -88,28 +92,35 @@ public final class WebAssets{
 
             String text = new String(data, arc.util.Strings.utf8);
             for(String line : text.split("\n")){
-                String path = line.trim();
+                // Lines are "path\tsize" (see generateAssetManifest); accept
+                // bare paths too so hand-made manifests keep working.
+                int tab = line.indexOf('\t');
+                String path = (tab >= 0 ? line.substring(0, tab) : line).trim();
                 if(!path.isEmpty()) manifest.add(path);
             }
             Log.info("[assets] manifest: @ files", manifest.size);
             bootProgress(0, manifest.size);
 
-            prefetch(() -> {
+            // Hydrate/validate the IndexedDB asset cache (index.html) before
+            // prefetching: on a repeat visit every entry resolves from the
+            // cache and no network request happens at all.
+            cacheInit(text, () -> prefetch(() -> {
                 loaded = true;
                 Log.info("[assets] prefetched @ files into memory", files.size);
                 bootStatus("Starting game...");
                 done.run();
-            });
+            }));
         });
     }
 
     /** Concurrent prefetch workers. Serial fetching costs one full network
      *  round-trip per file -- measured ~2 files/s against GitHub Pages, i.e.
      *  ~6 minutes for the ~700-file manifest -- while a browser happily runs
-     *  6+ requests in parallel (far more over HTTP/2). TeaVM is
-     *  single-threaded (event-loop callbacks), so the shared cursor and
-     *  completed counters need no synchronization. */
-    private static final int prefetchWorkers = 8;
+     *  dozens of requests in parallel over HTTP/2 (Chrome allows ~100
+     *  concurrent streams per host; 24 leaves headroom for the game's own
+     *  streaming fetches). TeaVM is single-threaded (event-loop callbacks),
+     *  so the shared cursor and completed counters need no synchronization. */
+    private static final int prefetchWorkers = 24;
 
     private static void prefetch(Runnable done){
         int total = manifest.size;
@@ -133,16 +144,38 @@ public final class WebAssets{
             return;
         }
         String path = manifest.get(index);
-        fetchBytes(path, data -> {
-            if(data != null){
-                files.put(path, data);
+        // Cache-first: repeat visits resolve straight from IndexedDB; misses
+        // fetch over the network and backfill the cache for next time.
+        cacheGet(path, buffer -> {
+            if(buffer == null){
+                fetchArrayBuffer("./" + path, fetched -> {
+                    if(fetched != null) cachePut(path, fetched);
+                    consume(fetched, path, cursor, completed, total, done);
+                });
             }else{
-                Log.err("[assets] failed to prefetch '@'", path);
+                consume(buffer, path, cursor, completed, total, done);
             }
-            // Count failures too, or the bar would stall one file short.
-            bootProgress(++completed[0], total);
-            prefetchNext(cursor, completed, total, done);
         });
+    }
+
+    /** Decodes a prefetched buffer into the in-memory map, ticks the bar, pulls the next file. */
+    private static void consume(ArrayBuffer buffer, String path, int[] cursor, int[] completed, int total, Runnable done){
+        if(buffer != null){
+            try{
+                int len = buffer.getByteLength();
+                Uint8Array view = new Uint8Array(buffer);
+                byte[] out = new byte[len];
+                for(int i = 0; i < len; i++) out[i] = (byte)view.get(i);
+                files.put(path, out);
+            }catch(Throwable t){
+                Log.err("[assets] error decoding response for '@'", path);
+            }
+        }else{
+            Log.err("[assets] failed to prefetch '@'", path);
+        }
+        // Count failures too, or the bar would stall one file short.
+        bootProgress(++completed[0], total);
+        prefetchNext(cursor, completed, total, done);
     }
 
     /** Synchronous read of a prefetched asset; null when absent. */
@@ -256,6 +289,28 @@ public final class WebAssets{
     @JSBody(params = "text", script =
         "try{window.__msBootStatus && window.__msBootStatus(text);}catch(e){}")
     static native void bootStatus(String text);
+
+    // ---- IndexedDB asset cache (index.html; no-op where absent) ----
+
+    @JSFunctor
+    interface JsRunnable extends JSObject{
+        void call();
+    }
+
+    /** Validates/clears the page's asset cache against the fresh manifest text, then runs done. */
+    @JSBody(params = {"manifestText", "done"}, script =
+        "if(window.__msCacheInit){ window.__msCacheInit(manifestText, function(){ done(); }); }else{ done(); }")
+    static native void cacheInit(String manifestText, JsRunnable done);
+
+    /** Cached bytes for a manifest entry, or null (also null on any error / absent cache). */
+    @JSBody(params = {"path", "cb"}, script =
+        "if(window.__msCacheGet){ window.__msCacheGet(path).then(function(b){ cb(b || null); }); }else{ cb(null); }")
+    static native void cacheGet(String path, ArrayBufferCallback cb);
+
+    /** Backfills the cache (fire-and-forget; silently dropped on quota errors). */
+    @JSBody(params = {"path", "buffer"}, script =
+        "if(window.__msCachePut && buffer){ try{ window.__msCachePut(path, buffer); }catch(e){} }")
+    static native void cachePut(String path, ArrayBuffer buffer);
 
     // ---- embedded (standalone single-file) asset access ----
     // buildStandalone writes every asset, base64, into

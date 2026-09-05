@@ -248,7 +248,10 @@ tasks.register('generateAssetManifest') {
                 def rel = root.toPath().relativize(f.toPath()).toString()
                 if(!rel.startsWith('music/') && rel != 'index.html' && rel != 'asset-manifest.txt'
                     && !rel.startsWith('src/') && !rel.endsWith('.js') && !rel.endsWith('.js.map')){
-                    out.append(rel).append('\n')
+                    // "path\tsize": the size rides along so the browser-side
+                    // asset cache (index.html) can hash the manifest text and
+                    // invalidate when a same-named asset's bytes change.
+                    out.append(rel).append('\t').append(f.length()).append('\n')
                 }
             }
         }
@@ -298,9 +301,13 @@ tasks.register('buildStandalone') {
         if(!manifestFile.exists()) throw new GradleException('asset-manifest.txt missing; run buildWeb first')
 
         // embed set: every manifest entry plus all music (streamed in the
-        // folder build, must ride along in the single file)
+        // folder build, must ride along in the single file). Manifest lines
+        // are "path\tsize" (see generateAssetManifest) -- take the path half.
         def paths = new ArrayList<String>()
-        manifestFile.eachLine { line -> if(line.trim()) paths << line.trim() }
+        manifestFile.eachLine { line ->
+            def p = line.contains('\t') ? line.split('\t')[0].trim() : line.trim()
+            if(p) paths << p
+        }
         new File(dir, 'music').eachFileRecurse { f -> if(f.isFile()) paths << dir.toPath().relativize(f.toPath()).toString() }
 
         out.withWriter('UTF-8') { w ->
