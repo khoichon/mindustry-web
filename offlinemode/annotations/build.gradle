@@ -84,7 +84,7 @@ tasks.register('filterAnnotationsSources', Sync) {
 // build.gradle is jnigen-dependent and can't be evaluated standalone.
 sourceSets {
     main {
-        java.srcDirs = [filteredSrc, 'patched', '../Arc/arc-core/src']
+        java.srcDirs = [filteredSrc, 'patched', '../arc/arc-core/src']
         resources.srcDirs = ["${-> mindustryRoot.get()}/annotations/src/main/resources", processorServices]
     }
 }
