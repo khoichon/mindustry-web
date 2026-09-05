@@ -192,6 +192,19 @@
   .cta.primary:hover{ filter: brightness(1.1); transform: translateY(-1px); }
   .cta:active{ transform: translateY(0); }
 
+  .cta.secondary{
+    background: transparent;
+    color: var(--card-accent);
+    border: 1px solid var(--line);
+  }
+  .cta.secondary:hover{
+    border-color: var(--card-accent);
+    background: color-mix(in srgb, var(--card-accent) 10%, transparent);
+  }
+
+  .cta-stack{ margin-top: auto; display:flex; flex-direction:column; gap: 10px; }
+  .cta-stack .cta{ margin-top: 0; }
+
   /* ---- how it works table ---- */
   .compare{ margin-top: 84px; }
   .section-title{
@@ -326,7 +339,11 @@
           <span class="chip">modified Arc engine</span>
           <span class="chip">fully offline after download</span>
         </div>
-        <a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.html" download class="cta primary">Download .html →</a>
+        <div class="cta-stack">
+          <a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.html" download class="cta primary">Download .html →</a>
+          <a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.zip" download class="cta secondary">Download .zip file</a>
+          <a href="./offlinemode/build/" class="cta secondary">View offline build directly</a>
+        </div>
       </div>
 
     </div>
