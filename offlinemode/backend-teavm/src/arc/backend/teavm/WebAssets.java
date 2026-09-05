@@ -153,7 +153,10 @@ public final class WebAssets{
             return;
         }
 
-        String url = path.startsWith("/") ? path : "/" + path;
+        // Request relative to the page ("./") so the game also works when
+        // hosted under a subpath; an absolute "/path" only resolves when the
+        // server root IS the game directory.
+        String url = "./" + (path.startsWith("/") ? path.substring(1) : path);
         fetchArrayBuffer(url, buffer -> {
             if(buffer == null){
                 callback.call(null);
