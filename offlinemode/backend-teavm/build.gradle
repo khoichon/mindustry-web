@@ -283,6 +283,13 @@ tasks.register('buildStandalone') {
     description = 'Assemble build/web/mindustry-standalone.html: the whole game + assets + music in one file.'
     dependsOn 'buildWeb'
     def webDir = layout.buildDirectory.dir('web')
+    // The doLast reads the manifest, every manifest entry, the music tree,
+    // and the three JS files -- i.e. everything in build/web except this
+    // task's own output. Declare that as the input set so a rebuilt
+    // mindustry.js (or any changed asset) invalidates the task; without
+    // inputs Gradle saw only an unchanged output and skipped regeneration,
+    // silently shipping a standalone with stale JS inlined.
+    inputs.files(webDir.get().asFileTree.matching { exclude 'mindustry-standalone.html' })
     outputs.file(webDir.map { it.file('mindustry-standalone.html') })
     doLast {
         def dir = webDir.get().asFile
