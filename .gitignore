@@ -44,6 +44,8 @@ env/
 # Java
 *.class
 *.jar
+# The offlinemode Gradle wrapper jar must be committed (CI runs ./gradlew)
+!offlinemode/gradle/wrapper/*.jar
 .gradle/
 build/
 
