@@ -1,0 +1,11 @@
+# Build outputs
+.gradle/
+build/
+
+
+# OS junk
+.DS_Store
+*.log
+
+# User test data -- never commit
+mindustry-savefile-test.zip

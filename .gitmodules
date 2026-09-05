@@ -1,0 +1,6 @@
+[submodule "offlinemode/arc"]
+	path = offlinemode/arc
+	url = https://github.com/khoichon/arc
+[submodule "offlinemode/mindustry"]
+	path = offlinemode/mindustry
+	url = https://github.com/khoichon/mindustry

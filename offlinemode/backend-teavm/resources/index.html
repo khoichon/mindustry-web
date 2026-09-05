@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Mindustry (TeaVM)</title>
+    <style>
+        html, body { margin: 0; height: 100%; background: #16161a; overflow: hidden; overscroll-behavior: none; }
+        canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    </style>
+</head>
+<body>
+    <canvas id="mindustry-canvas"></canvas>
+    <script>
+        // Keep the backing store in sync with CSS size / devicePixelRatio.
+        function resize() {
+            var c = document.getElementById('mindustry-canvas');
+            var dpr = window.devicePixelRatio || 1;
+            c.width = Math.floor(c.clientWidth * dpr);
+            c.height = Math.floor(c.clientHeight * dpr);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+    </script>
+    <!-- Font stack for the FreeType replacement (see backend-teavm
+         src/arc/freetype/FreeType.java): opentype.js parses WOFF/TTF,
+         freetype-glue.js rasterizes via Path2D + Canvas2D and exposes the
+         ArcFreeType handle API the Java side calls through JSBody. -->
+    <script src="opentype.min.js"></script>
+    <script src="freetype-glue.js"></script>
+    <script src="mindustry.js"></script>
+    <script>
+        // TeaVM's UMD output attaches the compiled entry point to `window`
+        // as `main` -- it does not auto-run. Invoke it to boot the game.
+        try {
+            if (typeof window.main !== 'function') throw new Error("TeaVM export `main` not found on window");
+            window.main([]);
+        } catch (e) {
+            console.error("[boot] failed to start: " + (e && e.stack || e));
+            document.title = "BOOT FAILED";
+        }
+    </script>
+</body>
+</html>

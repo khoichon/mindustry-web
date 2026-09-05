@@ -1,0 +1,23 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'mindustry-teavm'
+
+// arc-core is NOT included as a Gradle subproject -- its real build.gradle
+// applies the jnigen native-codegen plugin and references `libraries`/
+// `versions`/`aproj()` that only exist in Arc's own root build, so it can't
+// be evaluated standalone. Instead, backend-teavm/build.gradle pulls in
+// Arc/arc-core/src directly as an extra source directory of its own single
+// module (see that file's sourceSets block) -- arc-core's build.gradle is
+// therefore never read at all.
+
+// :annotations compiles Mindustry's annotation-processor module (read-only
+// from the reference checkout, one patched file swapped in via source-set
+// filtering -- see annotations/build.gradle). backend-teavm runs it to
+// generate the entity/Call/Sounds/Icon classes core/src can't compile without.
+include ':annotations'
+include ':backend-teavm'
