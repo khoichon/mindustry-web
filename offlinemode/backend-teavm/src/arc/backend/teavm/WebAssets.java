@@ -94,7 +94,7 @@ public final class WebAssets{
             Log.info("[assets] manifest: @ files", manifest.size);
             bootProgress(0, manifest.size);
 
-            prefetch(0, () -> {
+            prefetch(() -> {
                 loaded = true;
                 Log.info("[assets] prefetched @ files into memory", files.size);
                 bootStatus("Starting game...");
@@ -103,9 +103,33 @@ public final class WebAssets{
         });
     }
 
-    private static void prefetch(int index, Runnable done){
-        if(index >= manifest.size){
+    /** Concurrent prefetch workers. Serial fetching costs one full network
+     *  round-trip per file -- measured ~2 files/s against GitHub Pages, i.e.
+     *  ~6 minutes for the ~700-file manifest -- while a browser happily runs
+     *  6+ requests in parallel (far more over HTTP/2). TeaVM is
+     *  single-threaded (event-loop callbacks), so the shared cursor and
+     *  completed counters need no synchronization. */
+    private static final int prefetchWorkers = 8;
+
+    private static void prefetch(Runnable done){
+        int total = manifest.size;
+        if(total == 0){
             done.run();
+            return;
+        }
+        int[] cursor = {0}, completed = {0};
+        for(int w = 0; w < Math.min(prefetchWorkers, total); w++){
+            prefetchNext(cursor, completed, total, done);
+        }
+    }
+
+    private static void prefetchNext(int[] cursor, int[] completed, int total, Runnable done){
+        int index = cursor[0]++;
+        if(index >= total){
+            // Only the completion that lands the last file re-enters here
+            // with completed == total; every earlier terminal pull sees a
+            // smaller count, so done runs exactly once.
+            if(completed[0] == total) done.run();
             return;
         }
         String path = manifest.get(index);
@@ -116,8 +140,8 @@ public final class WebAssets{
                 Log.err("[assets] failed to prefetch '@'", path);
             }
             // Count failures too, or the bar would stall one file short.
-            bootProgress(index + 1, manifest.size);
-            prefetch(index + 1, done);
+            bootProgress(++completed[0], total);
+            prefetchNext(cursor, completed, total, done);
         });
     }
 

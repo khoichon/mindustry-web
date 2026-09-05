@@ -584,7 +584,14 @@ session is everything since. Steps in order, with reasoning.)
     prefetches). Verified on a throttled connection (3 MB/s): bar visible
     with live counts at t+4s, removed at first frame; on localhost the
     label sweeps continuously 0→693 in ~2.2s and the whole boot stays
-    ~7.5s with zero page errors.
+    ~7.5s with zero page errors. Follow-up: the prefetch chain was
+    originally one-file-at-a-time, which on a real host costs one full
+    round-trip per file — measured ~2 files/s against GitHub Pages
+    (~6 min for the whole manifest, bar crawling) — so it now runs as an
+    8-worker pool (TeaVM is single-threaded; the cursor/counters need no
+    locks); with 300 ms injected RTT, 693 files complete in ~38 s
+    (~5.5x), and the completion bookkeeping still closes the gate
+    exactly once.
 
 ## 6. Verification status
 
