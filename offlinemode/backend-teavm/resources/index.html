@@ -62,6 +62,94 @@
             if (root) root.remove();
         };
     </script>
+    <script>
+        // Asset cache: IndexedDB, deliberately NOT a service worker. Repeat
+        // visits hydrate the prefetch from here instead of re-downloading
+        // ~60MB (GitHub Pages sends max-age=600, so the HTTP cache expires in
+        // ten minutes). Keyed by a hash of the manifest text -- which carries
+        // file sizes, so any asset change invalidates the whole cache. Music
+        // never rides along (it streams on demand). Everything degrades to a
+        // plain network fetch when IndexedDB is unavailable (private mode).
+        window.__msAssetCacheDb = null;
+        function msCacheOpen() {
+            if (window.__msAssetCacheDb) return Promise.resolve(window.__msAssetCacheDb);
+            return new Promise(function (res) {
+                try {
+                    var rq = indexedDB.open('mindustry-assets', 1);
+                    rq.onupgradeneeded = function () { rq.result.createObjectStore('files'); };
+                    rq.onsuccess = function () { window.__msAssetCacheDb = rq.result; res(rq.result); };
+                    rq.onerror = function () { res(null); };
+                } catch (e) { res(null); }
+            });
+        }
+        function msCacheHash(s) {
+            var h = 5381;
+            for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+            return 'v' + (h >>> 0).toString(36) + '-' + s.length;
+        }
+        var msCachePutQueue = [], msCacheFlushScheduled = false;
+        function msCacheFlush() {
+            msCacheFlushScheduled = false;
+            var items = msCachePutQueue.splice(0, 100);
+            if (items.length) {
+                msCacheOpen().then(function (db) {
+                    if (!db) return;
+                    try {
+                        var s = db.transaction('files', 'readwrite').objectStore('files');
+                        for (var i = 0; i < items.length; i++) {
+                            try { s.put(items[i][1], items[i][0]); } catch (e) {}
+                        }
+                    } catch (e) {}
+                });
+            }
+            if (msCachePutQueue.length && !msCacheFlushScheduled) {
+                msCacheFlushScheduled = true;
+                setTimeout(msCacheFlush, 0);
+            }
+        }
+        window.__msCacheInit = function (manifestText, done) {
+            var v = msCacheHash(manifestText);
+            msCacheOpen().then(function (db) {
+                if (!db) { done(); return; }
+                // Best-effort durability hint; ignore refusals.
+                try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+                var fin = function (keep) {
+                    if (keep) { done(); return; }
+                    try {
+                        var t = db.transaction('files', 'readwrite'), s = t.objectStore('files');
+                        s.clear();
+                        s.put(v, '__version__');   // ordered after clear() within the tx
+                        t.oncomplete = function () { done(); };
+                        t.onerror = function () { done(); };
+                    } catch (e) { done(); }
+                };
+                try {
+                    var rq = db.transaction('files', 'readonly').objectStore('files').get('__version__');
+                    rq.onsuccess = function () { fin(rq.result === v); };
+                    rq.onerror = function () { fin(false); };
+                } catch (e) { fin(false); }
+            });
+        };
+        window.__msCacheGet = function (path) {
+            return msCacheOpen().then(function (db) {
+                if (!db) return null;
+                return new Promise(function (res) {
+                    try {
+                        var rq = db.transaction('files', 'readonly').objectStore('files').get(path);
+                        rq.onsuccess = function () { res(rq.result || null); };
+                        rq.onerror = function () { res(null); };
+                    } catch (e) { res(null); }
+                });
+            });
+        };
+        window.__msCachePut = function (path, buffer) {
+            msCachePutQueue.push([path, buffer]);
+            if (!msCacheFlushScheduled) {
+                msCacheFlushScheduled = true;
+                setTimeout(msCacheFlush, 0);
+            }
+        };
+    </script>
     <!-- Font stack for the FreeType replacement (see backend-teavm
          src/arc/freetype/FreeType.java): opentype.js parses WOFF/TTF,
          freetype-glue.js rasterizes via Path2D + Canvas2D and exposes the

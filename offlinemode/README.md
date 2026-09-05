@@ -591,7 +591,19 @@ session is everything since. Steps in order, with reasoning.)
     8-worker pool (TeaVM is single-threaded; the cursor/counters need no
     locks); with 300 ms injected RTT, 693 files complete in ~38 s
     (~5.5x), and the completion bookkeeping still closes the gate
-    exactly once.
+    exactly once. Second follow-up: even at full parallelism the first
+    visit still pays ~60MB, and GitHub Pages sends max-age=600 — so
+    every visit past ten minutes re-downloaded everything. Assets are
+    now cached in IndexedDB by the page itself (deliberately NOT a
+    service worker): the manifest — now "path\tsize" lines, fetched
+    fresh every boot — is hashed into a cache version, so any asset
+    change invalidates the whole cache, and repeat visits resolve every
+    entry from the cache before hitting the network. The prefetch pool
+    also grew to 24 workers (Chrome allows ~100 concurrent HTTP/2
+    streams per host). Measured locally: warm boot 1.1 s with 5 network
+    requests (vs 698 cold); on GitHub Pages the full first boot dropped
+    from a projected ~6 min (serial) to ~25 s (pool) — cache cuts the
+    repeat visit to little more than script + game init.
 
 ## 6. Verification status
 
