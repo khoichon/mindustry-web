@@ -1,4 +1,6 @@
 save*
+# ...except the offlinemode game sources (mindustry/game/Saves.java et al)
+!offlinemode/backend-teavm/src/**
 # Dependencies
 node_modules/
 vendor/
