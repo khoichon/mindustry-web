@@ -70,6 +70,10 @@
         // file sizes, so any asset change invalidates the whole cache. Music
         // never rides along (it streams on demand). Everything degrades to a
         // plain network fetch when IndexedDB is unavailable (private mode).
+        // Append ?nocache to the page URL to bypass the cache for that visit
+        // (fresh network boot, full progress bar; the stored cache is left
+        // untouched).
+        var msCacheDisabled = /[?&]nocache(=|&|$)/.test(location.search);
         window.__msAssetCacheDb = null;
         function msCacheOpen() {
             if (window.__msAssetCacheDb) return Promise.resolve(window.__msAssetCacheDb);
@@ -108,6 +112,7 @@
             }
         }
         window.__msCacheInit = function (manifestText, done) {
+            if (msCacheDisabled) { done(); return; }
             var v = msCacheHash(manifestText);
             msCacheOpen().then(function (db) {
                 if (!db) { done(); return; }
@@ -131,6 +136,7 @@
             });
         };
         window.__msCacheGet = function (path) {
+            if (msCacheDisabled) return Promise.resolve(null);
             return msCacheOpen().then(function (db) {
                 if (!db) return null;
                 return new Promise(function (res) {
@@ -143,6 +149,7 @@
             });
         };
         window.__msCachePut = function (path, buffer) {
+            if (msCacheDisabled) return;
             msCachePutQueue.push([path, buffer]);
             if (!msCacheFlushScheduled) {
                 msCacheFlushScheduled = true;
