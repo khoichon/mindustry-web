@@ -194,9 +194,10 @@ other in both directions; separate sourceSets cannot express that):
   can't abort them (README §5 item 12). `LoadRenderer` is disabled in the
   ClientLauncher replacement (its draw() crashed per-frame on real GPUs and
   stalled boot — README §5 item 13); the boot loading animation is a DOM
-  progress bar in index.html instead (driven by WebAssets prefetch counts,
-  hidden on first rendered frame — README §5 item 15). A language-only
-  default locale crashes TeaVM's
+  progress bar in index.html instead (driven by WebAssets prefetch counts —
+  an 8-worker concurrent pool; one-at-a-time fetching measured ~2 files/s on
+  GitHub Pages — hidden on first rendered frame, README §5 item 15). A
+  language-only default locale crashes TeaVM's
   Currency lookup ("Currency not found: CYP") — Vars.java's replacement
   always gives the Java default locale a country (README §5 item 14).
 - Not yet exercised in a live browser: campaign sector launch (the
