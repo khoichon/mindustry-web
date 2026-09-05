@@ -1,0 +1,362 @@
+plugins {
+    id 'java'
+    id 'org.teavm' version '0.15.0'
+}
+
+sourceCompatibility = 17
+targetCompatibility = 17
+
+// Stages a filtered copy of arc-core's source tree into the build dir, with
+// the three files we're replacing (see src/arc/audio/Soloud.java,
+// src/arc/util/Buffers.java, src/arc/util/NativeUtils.java) left out. This
+// used to be a separate `arcCore` sourceSet, but that doesn't work: several
+// arc-core files (Pixmap, Shader, VertexBufferObject, IndexArray, ...) call
+// Buffers.newIntBuffer/newFloatBuffer/copy/etc. directly, so arc-core's own
+// compilation needs to SEE our replacement classes too, not just the other
+// way around -- two separate sourceSets can only depend on each other in one
+// direction, which made that a real circular dependency, not just an
+// ordering problem. Copying the filtered files into `main`'s own srcDirs
+// puts everything in a single compilation unit with one shared classpath,
+// which sidesteps the whole issue.
+def arcCoreFiltered = layout.buildDirectory.dir('arc-core-filtered')
+
+tasks.register('filterArcCoreSources', Sync) {
+    from('../arc/arc-core/src') {
+        exclude 'arc/audio/Soloud.java'     // replaced: src/arc/audio/Soloud.java (Web Audio)
+        exclude 'arc/util/Buffers.java'     // replaced: src/arc/util/Buffers.java (pure java.nio)
+        exclude 'arc/util/NativeUtils.java' // replaced: src/arc/util/NativeUtils.java (no-op)
+        // arc/graphics/Pixmap.java is NOT excluded -- it's patched in place
+        // in the Arc checkout itself (see /pixmap-patch.diff), not replaced.
+    }
+    // Arc extension modules Mindustry's core depends on (its own build.gradle
+    // lists flabel/freetype/g3d/fx/arcnet; freetype's JNI-bound FreeType.java
+    // is replaced by the opentype.js-backed copy in src/, arcnet is excluded
+    // entirely -- no sockets in the browser). The rest of each extension is
+    // pure Java: no native methods, no jnigen, safe under TeaVM.
+    from('../arc/extensions/g3d/src')
+    from('../arc/extensions/fx/src')
+    from('../arc/extensions/flabel/src')
+    from('../arc/extensions/freetype/src') {
+        exclude 'arc/freetype/FreeType.java' // replaced: src/arc/freetype/FreeType.java (opentype.js + Canvas2D)
+    }
+    into arcCoreFiltered
+}
+
+// Same treatment for Mindustry's core/src: staged copy with the files we
+// replace or exclude (see src/mindustry/**) left out. The Mindustry checkout
+// is a *reference* and must stay pristine -- unlike Arc, where patches are
+// applied in-place, every Mindustry-side change here is either a wholesale
+// replacement file in src/mindustry or an exclusion.
+// Monorepo layout (offlinemode/mindustry submodule) or standalone checkout.
+def mindustrySrc = providers.gradleProperty('mindustrySrc')
+    .orElse(file('../mindustry/core/src').exists() ? '../mindustry/core/src' : '../../mindustry/core/src')
+
+def mindustryFiltered = layout.buildDirectory.dir('mindustry-filtered')
+
+tasks.register('filterMindustrySources', Sync) {
+    from(mindustrySrc) {
+        exclude 'mindustry/core/Platform.java'      // replaced: src/mindustry/core/Platform.java (TeavmNetProvider, no jar mods)
+        exclude 'mindustry/ClientLauncher.java'     // replaced: src/mindustry/ClientLauncher.java (no Runtime.maxMemory)
+        exclude 'mindustry/async/AsyncCore.java'    // replaced: src/mindustry/async/AsyncCore.java (inline, no thread pool)
+        exclude 'mindustry/async/PhysicsProcess.java' // replaced: src/mindustry/async/PhysicsProcess.java
+        exclude 'mindustry/mod/Scripts.java'        // replaced: src/mindustry/mod/Scripts.java (no Rhino)
+        exclude 'mindustry/net/ArcNetProvider.java' // excluded: arcnet sockets don't exist in the browser; Platform.getNet() -> TeavmNetProvider
+        // java.util.concurrent retypings (ExecutorService/Future ->
+        // TeavmSimpleExecutor/TeavmFuture; LinkedBlockingQueue/CountDownLatch
+        // -> inline/wake-free equivalents): wholesale upstream copies with
+        // the deltas documented in each file.
+        exclude 'mindustry/Vars.java'
+        exclude 'mindustry/net/Net.java'
+        exclude 'mindustry/net/Streamable.java'
+        exclude 'mindustry/game/Saves.java'
+        exclude 'mindustry/mod/Mods.java'
+        exclude 'mindustry/editor/MapGenerateDialog.java'
+        exclude 'mindustry/graphics/ParticleRenderer.java'
+        exclude 'mindustry/editor/data/MapImagesView.java'
+        exclude 'mindustry/mod/DataImagePacker.java'
+        exclude 'mindustry/audio/SoundControl.java'
+        exclude 'mindustry/net/BeControl.java'    // replaced: src/mindustry/net/BeControl.java (no update checks / self-jar resolution)
+    }
+    into mindustryFiltered
+}
+
+// TeaVM's Class has no isAnonymousClass(). Mindustry's "anonymous subclass
+// reports its superclass" idiom appears in three shapes (one-line if, braced
+// if, ternary) across ~8 upstream files including comp sources that flow
+// into generated entity code -- too scattered for wholesale copies, so it is
+// rewritten in the staged copy here. The replacement must be SEMANTICALLY
+// equivalent, not a deletion: anonymous classes are named Outer$<digits> on
+// every JVM/TeaVM, so a name-suffix check identifies them without the
+// missing API. (A plain deletion proved WRONG for Block.initBuilding: it
+// left `current` as the anonymous Blocks$N class, where TeaVM's reflective
+// getDeclaredClasses()/isAssignableFrom() walk dies in the silent catch and
+// every content block's buildType fell back to base mindustry.gen.Building
+// -- whose empty read() desynced building chunks in legacy map/save reads.)
+tasks.register('rewriteTeavmIncompatible') {
+    dependsOn 'filterMindustrySources'
+    doLast {
+        def pBraced = ~/if\(([A-Za-z_]\w*)\.isAnonymousClass\(\)\)\{[ \t]*\r?\n[ \t]*\1 = \1\.getSuperclass\(\);[ \t]*\r?\n[ \t]*\}/
+        def pOneLine = ~/(?m)^[ \t]*if\(([A-Za-z_]\w*)\.isAnonymousClass\(\)\) \1 = \1\.getSuperclass\(\);[ \t]*\r?\n/
+        def pTernary = ~/([A-Za-z_]\w*(?:\.getClass\(\))?)\.isAnonymousClass\(\) \? \1\.getSuperclass\(\) : \1/
+        // ".+\\$\\d+" as it must appear in Java source
+        def anonRegexSrc = '.+\\\\$\\\\d+'
+        def hop = { String v -> 'if(' + v + '.getName().matches("' + anonRegexSrc + '")) ' + v + ' = ' + v + '.getSuperclass();' }
+        def qr = { String s -> java.util.regex.Matcher.quoteReplacement(s) }
+        int files = 0
+        fileTree(mindustryFiltered).matching { include '**/*.java' }.each { f ->
+            def s = f.text
+            // Only Block.initBuilding NEEDS the real hop: there the anonymous
+            // class breaks TeaVM's reflective buildType walk. The other sites
+            // (serialization name normalization) are safe used raw, and their
+            // replacement text must not reach the annotation processors.
+            def isBlockInit = f.name == 'Block.java' && f.parentFile.name == 'world'
+            def out = pBraced.matcher(s).replaceAll(matchResult -> qr(isBlockInit ? hop(matchResult.group(1)) : ''))
+            out = pOneLine.matcher(out).replaceAll('')
+            out = pTernary.matcher(out).replaceAll('$1')
+            if(out != s){ f.text = out; files++ }
+        }
+        logger.lifecycle("rewriteTeavmIncompatible: rewrote isAnonymousClass in {} file(s)", files)
+
+        // NOTE: this task edits staged files in place. If edits land while
+        // compileJava considers its inputs unchanged, Gradle can skip the
+        // recompile -- force with :compileJava --rerun-tasks when iterating
+        // on staged-source instrumentation.
+    }
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ['src', arcCoreFiltered, mindustryFiltered]
+        resources.srcDirs = ['resources']
+    }
+}
+
+compileJava.dependsOn('filterArcCoreSources', 'rewriteTeavmIncompatible')
+
+// The staged, writable "mindustry root" the annotation processors read and
+// write under (see annotations/build.gradle). The processors run inside this
+// compilation, so it must exist before compileJava.
+compileJava.dependsOn(':annotations:stageProcessorRoot')
+compileJava.options.compilerArgs << "-AmindustryRoot=${file('../annotations/build/mindustry-root').absolutePath}"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JS-interop bindings for WebGL2, WebAudio, DOM, typed arrays, gamepad, etc.
+    // This is what lets TeavmGL20/TeavmAudio call browser APIs directly and
+    // type-safely from Java instead of hand-rolling JSNI-style glue.
+    implementation 'org.teavm:teavm-jso-apis:0.15.0'
+    implementation 'org.teavm:teavm-classlib:0.15.0'
+
+    // Mindustry's annotation types (@EntityDef, @Remote, ...) for compiling
+    // core/src, and the processors themselves. compileOnly on purpose: TeaVM
+    // translates from the runtime classpath, and none of this belongs in the
+    // browser bundle.
+    compileOnly project(':annotations')
+    annotationProcessor project(':annotations')
+
+    // TeaVM compile-time extension SPI: lets TeavmReflectionPolicy (in this
+    // source set) register itself with the TeaVM compiler via the
+    // @Autoregistered-generated ServiceLoader entry, restoring
+    // getDeclaredFields() coverage for arc Json reflection. compileOnly: the
+    // policy runs in the compiler, never in the browser.
+    compileOnly 'org.teavm:teavm-extension-apis:0.15.0'
+    compileOnly 'org.teavm:teavm-extension-spi:0.15.0'
+    annotationProcessor 'org.teavm:teavm-extension-annotation-processor:0.15.0'
+}
+
+teavm {
+    js {
+        // Entry point: the class with public static void main(String[])
+        mainClass = 'arc.backend.teavm.TeavmLauncher'
+        targetFileName = 'mindustry.js'
+
+        // Release by default: minified JS, no source map. Pass -PdebugJs
+        // for the readable build (fast iteration, sane stack traces).
+        def debugJs = providers.gradleProperty('debugJs').isPresent()
+        obfuscated = !debugJs
+        sourceMap = debugJs
+    }
+}
+
+// Convenience task: copy the compiled JS next to index.html so the whole
+// thing can be served (or eventually inlined) as one unit.
+tasks.register('assembleWeb', Copy) {
+    dependsOn 'generateJavaScript'
+    from(layout.buildDirectory.dir('generated/teavm/js'))
+    from('resources')
+    into layout.buildDirectory.dir('web')
+}
+
+// ---------------------------------------------------------------------------
+// Assets.
+//
+// TeaVM's built-in classpath-resource support materializes resources as
+// *Strings* (see TClassLoader.resourceToString), which corrupts anything
+// binary -- PNGs, the sprite atlas, fonts, .msav maps. So Mindustry's asset
+// tree is instead served as plain static files next to the JS, and the game
+// prefetched them over HTTP into memory at boot (WebAssets.java); audio
+// streams lazily via fetch.
+//
+// Source: the prebuilt desktop jar from the CheerpJ reference checkout,
+// which contains the packed sprite atlas (sprites.aatls + page PNGs) built
+// by Mindustry's own :tools:pack from core/assets-raw. NOTE: jar was built
+// 2026-07-19 (v8 build 159.7) while the reference source tree moves -- if
+// new sprites are referenced by newer code they render as the error texture
+// until this jar is rebuilt or the pack task is run directly.
+// Monorepo layout first (mindustry-web root), then this machine's reference.
+def mindustryJar = providers.gradleProperty('mindustryJar')
+    .orElse(['../../mindustry.jar', '/Users/chon/code/mindustry-web/mindustry.jar'].find { file(it).exists() } ?: '../../mindustry.jar')
+
+def assetDirs = ['sprites/', 'sprites/fallback/', 'fonts/', 'sounds/', 'music/', 'maps/',
+                 'bundles/', 'shaders/', 'vfxshaders/', 'bloomshaders/', 'cursors/',
+                 'cubemaps/', 'icons/', 'scripts/', 'planets/', 'baseparts/',
+                 'logicids.dat', 'version.properties',
+                 // root-level files the game reads via files.internal():
+                 // locales (Vars bundle init), basepartnames (BaseRegistry),
+                 // contributors (AboutDialog)
+                 'locales', 'basepartnames', 'contributors']
+
+tasks.register('extractAssets', Copy) {
+    from(zipTree(mindustryJar))
+    include { el ->
+        def path = el.relativePath.pathString
+        return assetDirs.any { path.startsWith(it) }
+    }
+    into layout.buildDirectory.dir('web')
+    doFirst {
+        def f = new File(mindustryJar.get())
+        if(!f.exists()) throw new GradleException("mindustry.jar not found at ${f} (set -PmindustryJar=...)")
+    }
+}
+
+// One relative path per line; consumed by WebAssets at boot. Everything the
+// game might read synchronously is prefetched except music (streamed via
+// fetch on demand); the manifest itself also powers Fi.list() on internal
+// paths, which no other mechanism can provide.
+tasks.register('generateAssetManifest') {
+    dependsOn 'assembleWeb', 'extractAssets'
+    def webDir = layout.buildDirectory.dir('web')
+    outputs.file(webDir.map { it.file('asset-manifest.txt') })
+    doLast {
+        def out = new StringBuilder()
+        def root = webDir.get().asFile
+        root.eachFileRecurse { f ->
+            if(f.isFile()){
+                def rel = root.toPath().relativize(f.toPath()).toString()
+                if(!rel.startsWith('music/') && rel != 'index.html' && rel != 'asset-manifest.txt'
+                    && !rel.startsWith('src/') && !rel.endsWith('.js') && !rel.endsWith('.js.map')){
+                    out.append(rel).append('\n')
+                }
+            }
+        }
+        new File(root, 'asset-manifest.txt').text = out.toString()
+        println "asset manifest: ${out.count('\n')} entries"
+    }
+}
+
+tasks.register('buildWeb') {
+    group = 'build'
+    description = 'Assemble everything under build/web: JS, index.html, assets, manifest.'
+    dependsOn 'generateAssetManifest'
+}
+
+// ---------------------------------------------------------------------------
+// Standalone single-file build: one mindustry-standalone.html carrying the
+// game JS (opentype + freetype glue + mindustry.js) and EVERY asset --
+// including music, which the folder build streams -- inline as base64 in
+// globalThis.__MINDUSTRY_EMBEDDED__. WebAssets detects that blob at boot and
+// populates its in-memory map from it, so no fetch() happens at all; that is
+// also what makes file:// double-click-to-play work, since file:// origins
+// block fetch()/XHR entirely. Saves/settings go through IdbVfs, which falls
+// back to in-memory-only when IndexedDB is unavailable (e.g. Safari file://).
+// Expect a LARGE html (~170MB unoptimized today); flip obfuscated=true later
+// to shrink the inlined JS substantially.
+//
+// `</script` and `<!--` inside the inlined JS are escaped as `<\/script` /
+// `<\!--` -- inside JS strings those escapes are semantically identical, and
+// they stop the HTML parser from ending the script block early.
+tasks.register('buildStandalone') {
+    group = 'build'
+    description = 'Assemble build/web/mindustry-standalone.html: the whole game + assets + music in one file.'
+    dependsOn 'buildWeb'
+    def webDir = layout.buildDirectory.dir('web')
+    outputs.file(webDir.map { it.file('mindustry-standalone.html') })
+    doLast {
+        def dir = webDir.get().asFile
+        def out = new File(dir, 'mindustry-standalone.html')
+        def manifestFile = new File(dir, 'asset-manifest.txt')
+        if(!manifestFile.exists()) throw new GradleException('asset-manifest.txt missing; run buildWeb first')
+
+        // embed set: every manifest entry plus all music (streamed in the
+        // folder build, must ride along in the single file)
+        def paths = new ArrayList<String>()
+        manifestFile.eachLine { line -> if(line.trim()) paths << line.trim() }
+        new File(dir, 'music').eachFileRecurse { f -> if(f.isFile()) paths << dir.toPath().relativize(f.toPath()).toString() }
+
+        out.withWriter('UTF-8') { w ->
+            w << '''<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mindustry</title>
+<style>
+html, body { margin: 0; height: 100%; background: #16161a; overflow: hidden; overscroll-behavior: none; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="mindustry-canvas"></canvas>
+<script>
+function __msResize() {
+    var c = document.getElementById('mindustry-canvas');
+    var dpr = window.devicePixelRatio || 1;
+    c.width = Math.floor(c.clientWidth * dpr);
+    c.height = Math.floor(c.clientHeight * dpr);
+}
+window.addEventListener('resize', __msResize);
+__msResize();
+</script>
+<script>
+'''
+            // game scripts, in the same order index.html loads them
+            for(String js : ['opentype.min.js', 'freetype-glue.js', 'mindustry.js']){
+                def text = new File(dir, js).getText('UTF-8')
+                text = text.replace('</script', '<\\/script').replace('<!--', '<\\!--')
+                if(text.endsWith('\n')) text = text.substring(0, text.length() - 1)
+                w << text
+                w << '\n</script>\n<script>\n'
+            }
+
+            // embedded assets, chunked so no single script block gets absurd
+            w << 'globalThis.__MINDUSTRY_EMBEDDED__ = {};\n'
+            int chunk = 0
+            paths.each { p ->
+                def f = new File(dir, p)
+                if(!f.isFile()) { logger.warn("standalone: missing asset {}", p); return }
+                if(chunk == 0) w << '(function(){var E=globalThis.__MINDUSTRY_EMBEDDED__;\n'
+                w << 'E["' + p.replace('\\', '\\\\').replace('"', '\\"') + '"]="' + f.bytes.encodeBase64().toString() + '";\n'
+                chunk++
+                if(chunk >= 100){ w << '})();</script>\n<script>\n'; chunk = 0 }
+            }
+            if(chunk > 0) w << '})();\n'
+
+            w << '''</script>
+<script>
+try {
+    if (typeof window.main !== 'function') throw new Error("TeaVM export `main` not found on window");
+    window.main([]);
+} catch (e) {
+    console.error("[boot] failed to start: " + (e && e.stack || e));
+    document.title = "BOOT FAILED";
+}
+</script>
+</body>
+</html>
+'''
+        }
+        logger.lifecycle('standalone: {} ({} assets, {} MB)', out.name, paths.size(), (int)(out.length() / 1024 / 1024))
+    }
+}

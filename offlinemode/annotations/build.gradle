@@ -1,0 +1,121 @@
+plugins {
+    id 'java'
+}
+
+sourceCompatibility = 17
+targetCompatibility = 17
+
+// Mindustry's annotation-processor module, compiled unmodified (except for
+// one patched file, see below) directly from the reference checkout, which is
+// only ever READ. The processors generate Mindustry's entity classes
+// (mindustry/gen/*), the Sounds/Musics/Icon/Tex registries, Call.java and
+// friends into backend-teavm's compilation -- without them nothing in
+// core/src compiles (Player, Groups, Call, Sounds, Iconc, ... are all
+// generated types).
+//
+// The processors also read and WRITE real files under a "mindustry root"
+// directory (core/assets/sounds, core/assets-raw/..., and
+// annotations/src/main/resources/{revisions,classids.properties}). Upstream
+// that root is the repo itself; here it must not be, so a staged writable
+// copy is built (stageProcessorRoot) and passed to the processors via
+// -AmindustryRoot=... from backend-teavm/build.gradle.
+def mindustryRoot = providers.gradleProperty('mindustryRoot')
+    .orElse(new File(projectDir, '../mindustry').exists() ? '../mindustry' : '../../mindustry')
+
+// Staged, writable "mindustry root" -- exactly the subtrees the processors
+// touch, no more. Copy (not Sync) on purpose: Sync prunes destinations, which
+// would wipe the classids/revisions state EntityProcess writes back each run.
+def stagedRoot = layout.buildDirectory.dir('mindustry-root')
+
+tasks.register('stageProcessorRoot', Copy) {
+    from("${mindustryRoot.get()}/core/assets/sounds") { into 'core/assets/sounds' }
+    from("${mindustryRoot.get()}/core/assets/music") { into 'core/assets/music' }
+    from("${mindustryRoot.get()}/core/assets-raw/sprites/ui") { into 'core/assets-raw/sprites/ui' }
+    from("${mindustryRoot.get()}/core/assets-raw/fontgen/config.json") { into 'core/assets-raw/fontgen' }
+    from("${mindustryRoot.get()}/core/assets/icons/icons.properties") { into 'core/assets/icons' }
+    from("${mindustryRoot.get()}/annotations/src/main/resources/revisions") { into 'annotations/src/main/resources/revisions' }
+    from("${mindustryRoot.get()}/annotations/src/main/resources/classids.properties") { into 'annotations/src/main/resources' }
+    into stagedRoot
+}
+
+// Processors register through META-INF/services; upstream's build generates
+// this file into the checkout itself (preGen/writeProcessors), which we must
+// not do, so it lands in our own build dir instead.
+def processorServices = layout.buildDirectory.dir('processor-services')
+
+tasks.register('writeProcessorServices') {
+    outputs.dir(processorServices)
+    doLast {
+        def f = new File(processorServices.get().asFile, 'META-INF/services/javax.annotation.processing.Processor')
+        f.parentFile.mkdirs()
+        f.text = [
+            'mindustry.annotations.entity.EntityProcess',
+            'mindustry.annotations.impl.AssetsProcess',
+            'mindustry.annotations.impl.StructProcess',
+            'mindustry.annotations.misc.LoadRegionProcessor',
+            'mindustry.annotations.misc.LogicStatementProcessor',
+            'mindustry.annotations.remote.RemoteProcess',
+        ].join('\n') + '\n'
+    }
+}
+
+// Filtered copy of the processor sources, with the one patched file left out.
+def filteredSrc = layout.buildDirectory.dir('src-filtered')
+
+tasks.register('filterAnnotationsSources', Sync) {
+    from("${mindustryRoot.get()}/annotations/src/main/java") {
+        exclude 'mindustry/annotations/BaseProcessor.java' // replaced: patched/ (rootDirectory override)
+    }
+    // The patched Arc (threads-patch/concurrency-patch) types its executor
+    // fields as these two classes; they live in backend-teavm/src and are
+    // plain Thread/synchronized-based Java with no TeaVM dependencies, so
+    // they compile identically here.
+    from('../backend-teavm/src') {
+        include 'arc/util/TeavmSimpleExecutor.java'
+        include 'arc/util/TeavmFuture.java'
+        include 'arc/util/UnsafeBuffers.java' // referenced by patched Pixmap.java
+    }
+    into filteredSrc
+}
+
+// BaseProcessor uses arc.files.Fi / arc.struct.Seq / arc.util.Log at processor
+// runtime, so arc-core is compiled into this jar too -- the same source tree
+// backend-teavm compiles (including its in-place patches). Arc's own
+// build.gradle is jnigen-dependent and can't be evaluated standalone.
+sourceSets {
+    main {
+        java.srcDirs = [filteredSrc, 'patched', '../Arc/arc-core/src']
+        resources.srcDirs = ["${-> mindustryRoot.get()}/annotations/src/main/resources", processorServices]
+    }
+}
+
+compileJava.dependsOn('filterAnnotationsSources', 'writeProcessorServices')
+processResources.dependsOn('writeProcessorServices')
+
+compileJava.options.fork = true
+
+// Same export list Mindustry's build passes when compiling the annotations
+// module: the processor sources reach into javac internals.
+compileJava.options.compilerArgs.addAll([
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.jvm=ALL-UNNAMED',
+    '--add-exports', 'jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED',
+    '--add-exports', 'java.base/sun.reflect.annotation=ALL-UNNAMED'
+])
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Code generation framework used by every processor.
+    implementation 'com.squareup:javapoet:1.12.1'
+}
