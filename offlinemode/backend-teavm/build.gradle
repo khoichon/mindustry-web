@@ -220,14 +220,14 @@ def assetDirs = ['sprites/', 'sprites/fallback/', 'fonts/', 'sounds/', 'music/',
                  'locales', 'basepartnames', 'contributors']
 
 tasks.register('extractAssets', Copy) {
-    from(zipTree(mindustryJar))
+    from(zipTree(mindustryJar.map { file(it) }))
     include { el ->
         def path = el.relativePath.pathString
         return assetDirs.any { path.startsWith(it) }
     }
     into layout.buildDirectory.dir('web')
     doFirst {
-        def f = new File(mindustryJar.get())
+        def f = file(mindustryJar.get())
         if(!f.exists()) throw new GradleException("mindustry.jar not found at ${f} (set -PmindustryJar=...)")
     }
 }
