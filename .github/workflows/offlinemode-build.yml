@@ -62,18 +62,18 @@ jobs:
           ./gradlew --no-daemon :backend-teavm:buildStandalone \
             "-Dorg.gradle.java.home=$JAVA_HOME"
 
+      - name: Stage the standalone single file
+        run: |
+          cp offlinemode/backend-teavm/build/web/mindustry-standalone.html \
+             mindustry-offline.html
+          ls -la mindustry-offline.html
+
       - name: Package the servable folder build
         run: |
           cd offlinemode/backend-teavm/build/web
           rm -f mindustry-standalone.html
           zip -qr "$GITHUB_WORKSPACE/mindustry-offline.zip" .
           unzip -l "$GITHUB_WORKSPACE/mindustry-offline.zip" | tail -2
-
-      - name: Stage the standalone single file
-        run: |
-          cp offlinemode/backend-teavm/build/web/mindustry-standalone.html \
-             mindustry-offline.html
-          ls -la mindustry-offline.html
 
       - uses: actions/upload-artifact@v4
         with:
