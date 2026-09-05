@@ -1,0 +1,88 @@
+# Builds the offline (TeaVM) Mindustry web port and uploads two artifacts:
+#
+#   mindustry-offline.zip  -- the servable folder build (index.html + JS +
+#                             assets + manifest); unzip and serve over any
+#                             static HTTP server
+#   mindustry-offline.html -- the single-file standalone build (everything
+#                             embedded, opens from file://)
+#
+# Source layout: this repo's offlinemode/ plus its two submodules
+# (arc @ teavm-backend, mindustry). The asset source jar (~150 MB, not
+# committed) is downloaded from Anuken's releases -- pinned to v159.7,
+# the exact build the project's assets were extracted from; override via
+# the workflow_dispatch input for newer builds.
+name: Build offlinemode (TeaVM)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'offlinemode/**'
+      - '.github/workflows/offlinemode-build.yml'
+  workflow_dispatch:
+    inputs:
+      jar_url:
+        description: 'Mindustry desktop jar URL (asset source)'
+        required: false
+        default: 'https://github.com/Anuken/Mindustry/releases/download/v159.7/Mindustry.jar'
+
+env:
+  # The release the local development jar was exported from (v8 build
+  # 159.7, 2026-07-19 -- see offlinemode/README.md section 1).
+  DEFAULT_JAR_URL: https://github.com/Anuken/Mindustry/releases/download/v159.7/Mindustry.jar
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Fetch Mindustry jar (asset source)
+        run: |
+          url="${{ inputs.jar_url || env.DEFAULT_JAR_URL }}"
+          echo "downloading $url"
+          curl -fL --retry 3 -o mindustry.jar "$url"
+          # The build resolves it at <repo root>/mindustry.jar, i.e.
+          # ../../mindustry.jar relative to offlinemode/backend-teavm.
+          ls -la mindustry.jar
+
+      - name: Build web bundle and standalone single file
+        working-directory: offlinemode
+        # gradle.properties pins org.gradle.java.home to a dev-machine
+        # path; the command-line system property wins over it on CI.
+        run: |
+          ./gradlew --no-daemon :backend-teavm:buildStandalone \
+            "-Dorg.gradle.java.home=$JAVA_HOME"
+
+      - name: Package the servable folder build
+        run: |
+          cd offlinemode/backend-teavm/build/web
+          rm -f mindustry-standalone.html
+          zip -qr "$GITHUB_WORKSPACE/mindustry-offline.zip" .
+          unzip -l "$GITHUB_WORKSPACE/mindustry-offline.zip" | tail -2
+
+      - name: Stage the standalone single file
+        run: |
+          cp offlinemode/backend-teavm/build/web/mindustry-standalone.html \
+             mindustry-offline.html
+          ls -la mindustry-offline.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mindustry-offline.zip
+          path: mindustry-offline.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mindustry-offline.html
+          path: mindustry-offline.html
+          if-no-files-found: error
