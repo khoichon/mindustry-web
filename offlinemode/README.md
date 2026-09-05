@@ -569,6 +569,23 @@ session is everything since. Steps in order, with reasoning.)
     import-their-data → exit → reload cycle boots with 70 saves and zero
     Currency errors.
 
+15. **The folder build now shows a boot progress bar (follow-up to item
+    13).** With LoadRenderer gone, the asset prefetch was pure black
+    screen — the slowest phase of a real-network boot (693 files / ~95 MB
+    before the game starts) was also the least communicated one.
+    `index.html` carries a DOM overlay (thin bar + label, no canvas/GL —
+    nothing that can crash the way LoadRenderer did); `WebAssets.prefetch`
+    reports each completed file through a guarded `@JSBody` callback
+    (failures count too, or the bar stalls one file short), and
+    `TeavmApplication` hides the overlay on the first successfully
+    rendered frame, so the gap between prefetch-done and first frame shows
+    "Starting game..." rather than black. All callbacks no-op where the
+    overlay is absent (the standalone build embeds its assets and never
+    prefetches). Verified on a throttled connection (3 MB/s): bar visible
+    with live counts at t+4s, removed at first frame; on localhost the
+    label sweeps continuously 0→693 in ~2.2s and the whole boot stays
+    ~7.5s with zero page errors.
+
 ## 6. Verification status
 
 - `:backend-teavm:buildWeb` — **green** end to end (javac + annotation

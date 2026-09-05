@@ -193,8 +193,10 @@ other in both directions; separate sourceSets cannot express that):
   IndexedDB writes (up to 2s) before stopping so a post-import reload
   can't abort them (README §5 item 12). `LoadRenderer` is disabled in the
   ClientLauncher replacement (its draw() crashed per-frame on real GPUs and
-  stalled boot — README §5 item 13); the boot loading animation is a few
-  seconds of black screen. A language-only default locale crashes TeaVM's
+  stalled boot — README §5 item 13); the boot loading animation is a DOM
+  progress bar in index.html instead (driven by WebAssets prefetch counts,
+  hidden on first rendered frame — README §5 item 15). A language-only
+  default locale crashes TeaVM's
   Currency lookup ("Currency not found: CYP") — Vars.java's replacement
   always gives the Java default locale a country (README §5 item 14).
 - Not yet exercised in a live browser: campaign sector launch (the

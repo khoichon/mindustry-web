@@ -6,10 +6,31 @@
     <style>
         html, body { margin: 0; height: 100%; background: #16161a; overflow: hidden; overscroll-behavior: none; }
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+        /* Boot progress overlay. The game's own loading animation is disabled
+           in this port (LoadRenderer crashed per-frame on real GPUs), so until
+           the first rendered frame the page is otherwise pure black. WebAssets
+           drives the bar through window.__msBootProgress while it prefetches
+           the ~700-file asset manifest; the backend hides the overlay via
+           window.__msBootDone() on the first successfully rendered frame.
+           Everything no-ops when these elements are absent (standalone build). */
+        #ms-boot { position: fixed; inset: 0; display: flex; flex-direction: column;
+                   align-items: center; justify-content: center; gap: 14px;
+                   background: #16161a; z-index: 10; }
+        #ms-boot-track { width: 320px; max-width: 70vw; height: 4px; border-radius: 2px;
+                         background: rgba(255,255,255,0.12); overflow: hidden; }
+        #ms-boot-fill { width: 0%; height: 100%; border-radius: 2px;
+                        background: #ffd37f; transition: width 120ms linear; }
+        #ms-boot-label { font: 13px/1.4 -apple-system, 'Segoe UI', Roboto, sans-serif;
+                         color: #b9b9c4; letter-spacing: 0.02em; }
     </style>
 </head>
 <body>
     <canvas id="mindustry-canvas"></canvas>
+    <div id="ms-boot">
+        <div id="ms-boot-track"><div id="ms-boot-fill"></div></div>
+        <div id="ms-boot-label">Loading game code&hellip;</div>
+    </div>
     <script>
         // Keep the backing store in sync with CSS size / devicePixelRatio.
         function resize() {
@@ -20,6 +41,26 @@
         }
         window.addEventListener('resize', resize);
         resize();
+    </script>
+    <script>
+        // Boot overlay drivers, called from the compiled game code (WebAssets
+        // / TeavmApplication). Guarded so pages without the overlay (the
+        // standalone single-file build) no-op cleanly.
+        function msBootSet(label, pct) {
+            var fill = document.getElementById('ms-boot-fill');
+            var text = document.getElementById('ms-boot-label');
+            if (fill) fill.style.width = pct + '%';
+            if (text) text.textContent = label;
+        }
+        window.__msBootProgress = function (loaded, total) {
+            var pct = total > 0 ? Math.round(loaded * 100 / total) : 100;
+            msBootSet('Loading assets ' + loaded + ' / ' + total, pct);
+        };
+        window.__msBootStatus = function (text) { msBootSet(text, 100); };
+        window.__msBootDone = function () {
+            var root = document.getElementById('ms-boot');
+            if (root) root.remove();
+        };
     </script>
     <!-- Font stack for the FreeType replacement (see backend-teavm
          src/arc/freetype/FreeType.java): opentype.js parses WOFF/TTF,

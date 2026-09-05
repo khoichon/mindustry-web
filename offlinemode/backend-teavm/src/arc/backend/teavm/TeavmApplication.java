@@ -18,6 +18,8 @@ public class TeavmApplication implements Application {
     private final TeavmInput input;
     private final TeavmGL20 gl20;
     private boolean running;
+    /** Whether the page's boot progress overlay is still up (hidden after the first rendered frame). */
+    private boolean bootOverlayUp = true;
     private int lastWidth = -1, lastHeight = -1;
     private long lastFrameErrorId;
     private long lastFrameErrorFrame = Long.MIN_VALUE;
@@ -106,6 +108,13 @@ public class TeavmApplication implements Application {
                         if (!running) return;
                         try{
                             frame(timestamp);
+                            // First frame succeeded: the game is visibly
+                            // rendering, so the page's boot progress overlay
+                            // (see index.html / WebAssets) can go away.
+                            if(bootOverlayUp){
+                                bootOverlayUp = false;
+                                bootOverlayDone();
+                            }
                         }catch(Throwable t){
                             // A throw out of frame() would otherwise kill the RAF
                             // chain silently; keep the loop alive and surface the
@@ -265,6 +274,10 @@ public class TeavmApplication implements Application {
 
     @JSBody(params = "m", script = "console.error('[teavm-boot] ' + m);")
     public static native void bootError(String m);
+
+    /** Hides the page's boot progress overlay; no-op on pages without one (standalone build). */
+    @JSBody(script = "try{window.__msBootDone && window.__msBootDone();}catch(e){}")
+    static native void bootOverlayDone();
 
     @JSBody(script = "return globalThis.__arcLocalClipboard || '';")
     private static native String localClipboard();

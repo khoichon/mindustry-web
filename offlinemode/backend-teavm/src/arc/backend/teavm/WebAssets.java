@@ -92,10 +92,12 @@ public final class WebAssets{
                 if(!path.isEmpty()) manifest.add(path);
             }
             Log.info("[assets] manifest: @ files", manifest.size);
+            bootProgress(0, manifest.size);
 
             prefetch(0, () -> {
                 loaded = true;
                 Log.info("[assets] prefetched @ files into memory", files.size);
+                bootStatus("Starting game...");
                 done.run();
             });
         });
@@ -113,6 +115,8 @@ public final class WebAssets{
             }else{
                 Log.err("[assets] failed to prefetch '@'", path);
             }
+            // Count failures too, or the bar would stall one file short.
+            bootProgress(index + 1, manifest.size);
             prefetch(index + 1, done);
         });
     }
@@ -216,6 +220,18 @@ public final class WebAssets{
         "fetch(url).then(function(r){ if(!r.ok) throw new Error(r.status + ' ' + url); return r.arrayBuffer(); })" +
         ".then(function(b){ cb(b); }).catch(function(e){ console.error('[assets] ' + e); cb(null); });")
     static native void fetchArrayBuffer(String url, ArrayBufferCallback cb);
+
+    // ---- boot overlay reporting (index.html; no-op where absent) ----
+    // The page shows a progress bar while this class prefetches the manifest,
+    // because the game's own loading animation is disabled in this port.
+
+    @JSBody(params = {"loaded", "total"}, script =
+        "try{window.__msBootProgress && window.__msBootProgress(loaded, total);}catch(e){}")
+    static native void bootProgress(int loaded, int total);
+
+    @JSBody(params = "text", script =
+        "try{window.__msBootStatus && window.__msBootStatus(text);}catch(e){}")
+    static native void bootStatus(String text);
 
     // ---- embedded (standalone single-file) asset access ----
     // buildStandalone writes every asset, base64, into
