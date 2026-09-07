@@ -55,12 +55,12 @@ def mindustryFiltered = layout.buildDirectory.dir('mindustry-filtered')
 
 tasks.register('filterMindustrySources', Sync) {
     from(mindustrySrc) {
-        exclude 'mindustry/core/Platform.java'      // replaced: src/mindustry/core/Platform.java (TeavmNetProvider, no jar mods)
+        exclude 'mindustry/core/Platform.java'      // replaced: src/mindustry/core/Platform.java (WebRtcNetProvider, no jar mods)
         exclude 'mindustry/ClientLauncher.java'     // replaced: src/mindustry/ClientLauncher.java (no Runtime.maxMemory)
         exclude 'mindustry/async/AsyncCore.java'    // replaced: src/mindustry/async/AsyncCore.java (inline, no thread pool)
         exclude 'mindustry/async/PhysicsProcess.java' // replaced: src/mindustry/async/PhysicsProcess.java
         exclude 'mindustry/mod/Scripts.java'        // replaced: src/mindustry/mod/Scripts.java (no Rhino)
-        exclude 'mindustry/net/ArcNetProvider.java' // excluded: arcnet sockets don't exist in the browser; Platform.getNet() -> TeavmNetProvider
+        exclude 'mindustry/net/ArcNetProvider.java' // excluded: arcnet sockets don't exist in the browser; Platform.getNet() -> WebRtcNetProvider (WebRTC + signaling)
         // java.util.concurrent retypings (ExecutorService/Future ->
         // TeavmSimpleExecutor/TeavmFuture; LinkedBlockingQueue/CountDownLatch
         // -> inline/wake-free equivalents): wholesale upstream copies with
@@ -336,7 +336,7 @@ __msResize();
 <script>
 '''
             // game scripts, in the same order index.html loads them
-            for(String js : ['opentype.min.js', 'freetype-glue.js', 'mindustry.js']){
+            for(String js : ['opentype.min.js', 'freetype-glue.js', 'net-glue.js', 'mindustry.js']){
                 def text = new File(dir, js).getText('UTF-8')
                 text = text.replace('</script', '<\\/script').replace('<!--', '<\\!--')
                 if(text.endsWith('\n')) text = text.substring(0, text.length() - 1)

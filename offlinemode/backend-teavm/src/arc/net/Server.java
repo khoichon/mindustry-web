@@ -9,7 +9,7 @@ package arc.net;
  * upstream Net.java compiling without pulling in the arcnet module, whose
  * NIO-socket implementation cannot compile under TeaVM. ArcNetProvider (the
  * only real consumer) is excluded from the TeaVM build; networking goes
- * through TeavmNetProvider instead.
+ * through WebRtcNetProvider (WebRTC DataChannels) instead.
  */
 public class Server{
     public interface ServerConnectFilter{

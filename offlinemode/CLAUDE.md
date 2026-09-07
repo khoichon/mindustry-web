@@ -16,6 +16,14 @@ node tools/boot-test.mjs --wait 60000 \
   --screenshot build/shots/x.png         # headless-Chrome boot test; prints
                                          # every console line, exits 1 if
                                          # --expect SUBSTRING never appears
+node tools/net-test.mjs                  # multiplayer: two full game pages
+                                         # in two headless Chrome instances;
+                                         # hosts a PvP world on A, B joins
+                                         # via invite link; PASS requires
+                                         # world stream + 5s of stable
+                                         # post-join traffic. Uses the mock
+                                         # relay (mock-signal-server.mjs) --
+                                         # no Supabase needed
 node tools/fileio-test.mjs \
   --export 838,333                       # end-to-end file IO: import a save
                                          # via the native picker input, then
@@ -191,7 +199,17 @@ other in both directions; separate sourceSets cannot express that):
   patched in-memory `ZipFi` (arc checkout: ZipInputStream parse instead of
   ZipFile), and `TeavmApplication.exit()` drains IdbVfs's pending
   IndexedDB writes (up to 2s) before stopping so a post-import reload
-  can't abort them (README §5 item 12). `LoadRenderer` is disabled in the
+  can't abort them (README §5 item 12). **Multiplayer is live (README §5
+  item 16)**: `WebRtcNetProvider` + `resources/net-glue.js` implement
+  NetProvider over WebRTC DataChannels (browser↔browser host/join, room
+  codes, `?join=CODE` invite links, Local-tab room discovery); signaling
+  is Supabase Realtime with EVERYTHING prefixed `mindustryweb_` (creds
+  entered in a DOM dialog, stored in localStorage; `?signal=ws://…` swaps
+  in the mock relay for tests). Gotchas: packet ids ≥128 read as negative
+  bytes — only 0xFE/-2 is the framework marker; two game pages in ONE
+  headless browser freeze the occluded page's RAF (use two browser
+  instances, as net-test.mjs does); a backgrounded host tab pauses the
+  server for everyone. `LoadRenderer` is disabled in the
   ClientLauncher replacement (its draw() crashed per-frame on real GPUs and
   stalled boot — README §5 item 13); the boot loading animation is a DOM
   progress bar in index.html instead (driven by WebAssets prefetch counts —

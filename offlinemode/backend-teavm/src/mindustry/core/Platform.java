@@ -14,8 +14,9 @@ import mindustry.ui.FileChooser.*;
 /**
  * Copy of core/src/mindustry/core/Platform.java for the TeaVM build, with
  * three changes (everything else is verbatim upstream):
- *  - getNet() returns the offline TeavmNetProvider instead of ArcNetProvider
- *    (the browser has no raw sockets; TeaVM's classlib has none either);
+ *  - getNet() returns WebRtcNetProvider instead of ArcNetProvider: the
+ *    browser has no raw sockets, so multiplayer rides WebRTC DataChannels
+ *    with a signaling room (see WebRtcNetProvider + resources/net-glue.js);
  *  - loadJar() throws: jar mods would need URLClassLoader, which TeaVM
  *    doesn't implement -- only folder-based content mods can work offline;
  *  - the Rhino Context script methods are gone (Scripts is stubbed).
@@ -53,7 +54,7 @@ public interface Platform{
 
     /** Get the networking implementation.*/
     default NetProvider getNet(){
-        return new TeavmNetProvider();
+        return new WebRtcNetProvider();
     }
 
     /** Gets the scripting implementation. */
