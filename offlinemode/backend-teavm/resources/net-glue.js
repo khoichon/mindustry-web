@@ -209,7 +209,10 @@ function busConnect(cb) {
         });
         return;
     }
-    var url = S.mode === 'mock' ? S.signalUrl : S.creds.url + '/realtime/v1/websocket?apikey=' + encodeURIComponent(S.creds.key) + '&vsn=1';
+    // NOTE vsn: '1.0.0' exactly -- realtime-js sends this value and the server
+    // rejects unknown protocol versions with HTTP 403 on the websocket
+    // upgrade ('vsn=1' measured against a live project).
+    var url = S.mode === 'mock' ? S.signalUrl : S.creds.url + '/realtime/v1/websocket?apikey=' + encodeURIComponent(S.creds.key) + '&vsn=1.0.0';
     if (!url) { cb(false, 'no signal url'); return; }
     var ws;
     try { ws = new WebSocket(url); }
@@ -251,12 +254,20 @@ function busRaw(obj) {
 }
 
 // join a channel/room; onReady fires once the join is acknowledged.
+// The supabase payload mirrors realtime-js exactly -- notably
+// presence.enabled, without which the server never tracks presence on the
+// channel (so hosts would never appear in discovery).
 function roomJoin(room, onReady) {
     if (S.mode === 'supabase') {
         var topic = room === 'lobby' ? lobbyTopic() : roomTopic(room);
         S.pendingJoins[topic] = { onReady: onReady };
         busRaw({ topic: topic, event: 'phx_join', ref: String(++S.ref),
-            payload: { config: { broadcast: { self: false, ack: false }, presence: { key: S.myId } } } });
+            payload: { config: {
+                broadcast: { ack: false, self: false },
+                presence: { key: S.myId, enabled: true },
+                postgres_changes: [],
+                private: false
+            } } });
     } else {
         busRaw({ t: 'join', room: room, id: S.myId });
         if (onReady) onReady();
@@ -289,8 +300,9 @@ function roomSend(room, obj, to) {
 // update our presence metadata on the lobby channel (host status changes)
 function lobbyTrack(metas) {
     if (S.mode === 'supabase') {
+        // payload shape mirrors realtime-js send(): the inner type matters
         busRaw({ topic: lobbyTopic(), event: 'presence', ref: String(++S.ref),
-            payload: { type: 'track', payload: metas } });
+            payload: { type: 'presence', event: 'track', payload: metas } });
     } else {
         busRaw({ t: 'metas', room: 'lobby', id: S.myId, metas: metas });
     }
@@ -329,8 +341,11 @@ function busHandle(m) {
 
 function lobbyPresence(m) {
     if (m.event === 'presence_state') {
+        // the payload IS the presence map: {key: {metas: [...]}} (phoenix
+        // protocol; realtime-js's transformState reads it the same way --
+        // there is no .responses wrapper)
         S.lobby = {};
-        var res = (m.payload && m.payload.responses) || {};
+        var res = m.payload || {};
         for (var k in res) applyMetas((res[k] && res[k].metas) || []);
     } else {
         var joins = (m.payload && m.payload.joins) || {};
@@ -846,10 +861,20 @@ window.__msNetAutoJoin = function () {
             var kv = q[i].split('=');
             if (decodeURIComponent(kv[0] || '') === 'supabase' && kv[1]) {
                 var parts = decodeURIComponent(kv[1]).split('|');
-                if (parts.length === 2) saveCreds(normalizeUrl(parts[0]), parts[1]);
+                if (parts.length === 2) {
+                    saveCreds(normalizeUrl(parts[0]), parts[1]);
+                    S.creds = { url: normalizeUrl(parts[0]), key: parts[1] };
+                }
             }
         }
     } catch (e) {}
+    // stored credentials count from the start -- without this the glue would
+    // re-ask for credentials (and report mode:null) despite a prior save
+    if (!S.creds) {
+        var stored = loadCreds();
+        if (stored) S.creds = stored;
+    }
+    if (S.creds) S.mode = 'supabase';
 })();
 
 // dialog/overlay styling (injected once)
