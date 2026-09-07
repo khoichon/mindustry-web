@@ -28,13 +28,15 @@ fs.mkdirSync(shots, {recursive: true});
 const SIGNAL_PORT = 9081;
 const signalUrl = `ws://127.0.0.1:${SIGNAL_PORT}`;
 
-// --supabase 'https://<ref>.supabase.co|<publishable/anon key>' switches the
-// whole test onto a real Supabase project (no mock relay is started).
+// Signaling mode: default is the hermetic mock relay. `--supabase 'URL|key'`
+// (or bare `--supabase` to use the credentials baked into net-glue.js) runs
+// the whole test against a real Supabase project.
 function arg(name){
     const i = process.argv.indexOf(name);
     return i >= 0 ? process.argv[i + 1] : null;
 }
-const supabase = arg('--supabase');
+const useSupabase = process.argv.includes('--supabase');
+const supabase = useSupabase ? (arg('--supabase') || true) : null;
 
 const MIME = {'.html':'text/html','.js':'text/javascript','.png':'image/png','.ogg':'audio/ogg','.ttf':'font/ttf','.atls':'application/octet-stream','.msav':'application/octet-stream'};
 const server = http.createServer((req,res)=>{
@@ -50,10 +52,15 @@ const port = server.address().port;
 
 const relay = supabase ? null : spawn('node', [path.join(repo, 'tools/mock-signal-server.mjs'), String(SIGNAL_PORT)], {stdio:['ignore','pipe','pipe']});
 if(relay) relay.stdout.on('data', d => process.stdout.write('[relay] ' + d));
-// page query: mock relay override, or Supabase credential preload
-const pageQuery = supabase
-    ? `supabase=${encodeURIComponent(supabase)}`
-    : `signal=${encodeURIComponent(signalUrl)}`;
+// page URL builder: mock relay override, or a Supabase credential preload
+// (bare --supabase uses net-glue.js's baked-in DEFAULT_CREDS, so no param)
+function pageUrl(extra){
+    const params = [];
+    if(supabase && supabase !== true) params.push(`supabase=${encodeURIComponent(supabase)}`);
+    else if(!supabase) params.push(`signal=${encodeURIComponent(signalUrl)}`);
+    if(extra) params.push(extra);
+    return `http://127.0.0.1:${port}/index.html${params.length ? '?' + params.join('&') : ''}`;
+}
 await new Promise(r=>setTimeout(r,600));
 
 const browserArgs = ['--no-sandbox','--disable-dev-shm-usage','--disable-features=WebRtcHideLocalIpsWithMdns',
@@ -116,8 +123,8 @@ const click = async(page, x, y, settle) => { await page.mouse.click(x, y); await
 
 try{
     // --- page A: boot + host a PvP world (autohosts) ---
-    const {page: A} = await newGamePage('A', browserA);
-    await bootAndWaitLoaded(A, `http://127.0.0.1:${port}/index.html?${pageQuery}`);
+    const {page: A, lines: linesA} = await newGamePage('A', browserA);
+    await bootAndWaitLoaded(A, pageUrl());
     console.log('[net-test] A booted; navigating to a PvP world');
     await click(A, 240, 231, 2500);   // Play
     await click(A, 493, 370, 2500);   // Custom Game
@@ -135,7 +142,7 @@ try{
     // Servers" tab path -- lobby presence, not the invite link) ---
     {
         const {page: C} = await newGamePage('C', browserB);
-        await bootAndWaitLoaded(C, `http://127.0.0.1:${port}/index.html?${pageQuery}`);
+        await bootAndWaitLoaded(C, pageUrl());
         await C.evaluate(() => window.__msNetDiscoverRooms());
         let found = false;
         for(let i = 0; i < 12 && !found; i++){
@@ -150,7 +157,7 @@ try{
     // --- page B: invite link, auto-join ---
     const {page: B, lines: linesB} = await newGamePage('B', browserB);
     console.log(`[net-test] B joining room ${code} via invite link`);
-    await bootAndWaitLoaded(B, `http://127.0.0.1:${port}/index.html?${pageQuery}&join=${code}`);
+    await bootAndWaitLoaded(B, pageUrl('join=' + code));
     await B.evaluate(() => window.__msNetDebug && window.__msNetDebug(true));
 
     // world stream can take a while headless; poll for up to 90 s
@@ -183,6 +190,12 @@ try{
         await sleep(5000);
         stB = JSON.parse(await B.evaluate(() => window.__msNetState()));
         check('B stays connected after the join', stB.connected, JSON.stringify(stB));
+        // the join is only complete when the server accepted the client's
+        // (zero-payload) connectConfirm and registered the player: it logs
+        // "X has connected." when that happens. Without it the world renders
+        // but the player never spawns.
+        check('server registered the player (connectConfirm)',
+            linesA.some(l => l.includes('has connected')));
     }
     stA = JSON.parse(await A.evaluate(() => window.__msNetState()));
     check('A sees the peer', stA.peers === 1, JSON.stringify(stA));

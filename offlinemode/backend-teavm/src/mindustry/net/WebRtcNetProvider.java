@@ -419,16 +419,17 @@ public class WebRtcNetProvider implements Net.NetProvider{
         int len = buf.getShort() & 0xffff;
         byte compression = buf.get();
         if(compression != 0) throw new IOException("compressed packets are not supported between browsers");
-        if(len > 0){
-            if(readBuf.capacity() < len) readBuf = ByteBuffer.allocate(Math.max(len, readBuf.capacity() * 2));
-            readBuf.clear();
-            readBuf.put(buf.array(), buf.position(), Math.min(len, buf.remaining()));
-            readBuf.position(0);
-            Packet packet = Net.newPacket(id);
-            packet.read(new Reads(new ByteBufferInput(readBuf)), len);
-            return packet;
-        }
-        return null;
+        // NOTE: len == 0 is valid and meaningful -- e.g. ConnectConfirmCallPacket
+        // carries no payload (the server identifies the player from the
+        // connection), and dropping empty frames silently prevented players
+        // from ever spawning after joining.
+        if(readBuf.capacity() < len) readBuf = ByteBuffer.allocate(Math.max(len, readBuf.capacity() * 2));
+        readBuf.clear();
+        readBuf.put(buf.array(), buf.position(), Math.min(len, buf.remaining()));
+        readBuf.position(0);
+        Packet packet = Net.newPacket(id);
+        packet.read(new Reads(new ByteBufferInput(readBuf)), len);
+        return packet;
     }
 
     // ------------------------------------------------------------------ helpers

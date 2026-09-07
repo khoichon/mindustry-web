@@ -203,13 +203,17 @@ other in both directions; separate sourceSets cannot express that):
   item 16)**: `WebRtcNetProvider` + `resources/net-glue.js` implement
   NetProvider over WebRTC DataChannels (browser↔browser host/join, room
   codes, `?join=CODE` invite links, Local-tab room discovery); signaling
-  is Supabase Realtime with EVERYTHING prefixed `mindustryweb_` (creds
-  entered in a DOM dialog, stored in localStorage; `?signal=ws://…` swaps
-  in the mock relay for tests). Gotchas: packet ids ≥128 read as negative
-  bytes — only 0xFE/-2 is the framework marker; two game pages in ONE
-  headless browser freeze the occluded page's RAF (use two browser
-  instances, as net-test.mjs does); a backgrounded host tab pauses the
-  server for everyone. `LoadRenderer` is disabled in the
+  is Supabase Realtime with EVERYTHING prefixed `mindustryweb_` (creds:
+  `?supabase=URL|KEY` > DOM dialog/localStorage > baked-in DEFAULT_CREDS
+  in net-glue.js — a publishable key, safe to ship; `?signal=ws://…`
+  always swaps in the mock relay for tests). Gotchas: packet ids ≥128
+  read as negative bytes — only 0xFE/-2 is the framework marker;
+  zero-length packets are valid (connectConfirm!) — don't drop them;
+  realtime needs `vsn=1.0.0` (vsn=1 → HTTP 403) and
+  `presence.enabled=true` in phx_join; two game pages in ONE headless
+  browser freeze the occluded page's RAF (use two browser instances, as
+  net-test.mjs does); a backgrounded host tab pauses the server for
+  everyone. `LoadRenderer` is disabled in the
   ClientLauncher replacement (its draw() crashed per-frame on real GPUs and
   stalled boot — README §5 item 13); the boot loading animation is a DOM
   progress bar in index.html instead (driven by WebAssets prefetch counts —
