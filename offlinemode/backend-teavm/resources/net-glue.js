@@ -30,6 +30,12 @@
 
 var PREFIX = 'mindustryweb_';
 var CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I L O 0 1
+
+// Baked-in signaling project (Supabase publishable key -- public by design,
+// safe to ship client-side; authorization is RLS-based, not key secrecy).
+// Users can still override via the credentials dialog, localStorage, or the
+// ?supabase=URL|KEY url param. Set to null to require manual entry.
+var DEFAULT_CREDS = { url: 'wss://rkmcfionuvnhmglihfgj.supabase.co', key: 'sb_publishable_ZEsrgXOt1S8wSXxzMmqN2g_GJCoYHVM' };
 var CHUNK = 16000;        // max fragment payload (SCTP-safe)
 var HB_INTERVAL = 4000;   // datachannel heartbeat period
 var HB_TIMEOUT = 15000;   // silence before a peer is declared dead
@@ -108,7 +114,9 @@ var credsDialogOpen = false;
 function askCreds(cb) {
     if (S.mode === 'mock') { cb(true); return; }
     if (credsDialogOpen) { cb(false); return; }
-    var existing = loadCreds() || { url: '', key: '' };
+    // prefill with whatever is effectively in use (dialog-saved, url param,
+    // or the baked-in defaults) so the dialog edits real values
+    var existing = S.creds || loadCreds() || { url: '', key: '' };
     credsDialogOpen = true;
 
     var shade = document.createElement('div');
@@ -847,13 +855,19 @@ window.__msNetAutoJoin = function () {
         var k = decodeURIComponent(kv[0] || '');
         var v = decodeURIComponent(kv[1] || '');
         if (k === 'join') code = v.toUpperCase();
-        if (k === 'signal' && !S.mode) signal = v;
+        if (k === 'signal') signal = v;
     }
+    // an explicit ?signal= always wins, even over baked-in/stored creds
     if (signal) window.__msNetSetSignal(signal);
     return code || '';
 };
 
-// credential preload from the URL: ?supabase=https://x.supabase.co|ANONKEY
+// credential resolution, in priority order:
+//   1. ?supabase=URL|KEY url param (also persisted)
+//   2. credentials saved via the DOM dialog (localStorage)
+//   3. the baked-in project defaults above (if set)
+// Without this the glue would re-ask for credentials (and report mode:null)
+// despite having usable ones available.
 (function () {
     try {
         var q = location.search.substring(1).split('&');
@@ -868,11 +882,12 @@ window.__msNetAutoJoin = function () {
             }
         }
     } catch (e) {}
-    // stored credentials count from the start -- without this the glue would
-    // re-ask for credentials (and report mode:null) despite a prior save
     if (!S.creds) {
         var stored = loadCreds();
         if (stored) S.creds = stored;
+    }
+    if (!S.creds && DEFAULT_CREDS && DEFAULT_CREDS.key) {
+        S.creds = { url: DEFAULT_CREDS.url, key: DEFAULT_CREDS.key };
     }
     if (S.creds) S.mode = 'supabase';
 })();

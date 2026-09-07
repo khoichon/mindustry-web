@@ -640,16 +640,27 @@ session is everything since. Steps in order, with reasoning.)
       project is prefixed `mindustryweb_` (channels
       `mindustryweb_room_<code>` and `mindustryweb_lobby`; no tables or
       edge functions needed -- presence self-cleans when the host leaves).
-      Credentials (project URL + anon key) are entered once in a DOM
-      dialog and kept in localStorage, or preloaded via
-      `?supabase=URL|KEY`.
+      Credentials resolve in priority order: `?supabase=URL|KEY` param >
+      the DOM dialog / localStorage > the project baked into
+      net-glue.js's DEFAULT_CREDS (a publishable key -- public by design,
+      so shipping it client-side is safe; override it to repoint builds
+      at another project). The raw-socket details that cost a debugging
+      round against the live project: `vsn=1.0.0` exactly (the server
+      answers `vsn=1` with HTTP 403 on the websocket upgrade),
+      `presence.enabled=true` in the phx_join config or the server never
+      tracks presence, `presence_state`'s payload IS the presence map
+      (no `.responses` wrapper), and the presence-track payload needs
+      `{type:'presence', event:'track', payload}` nesting.
     - **Wire format**: ArcNetProvider's PacketSerializer shape minus
       compression -- [id byte][short length][0][payload]. Both peers run
-      the same bundle, so packet ids always agree. The one real bug in
-      this layer: with 171 registered packets, ids >= 128 arrive as
-      *negative* bytes, and the decoder originally rejected `id < 0` as
-      "not a packet" -- desktop checks `id == -2` (arcnet's framework
-      marker) specifically; match that.
+      the same bundle, so packet ids always agree. Two real bugs in this
+      layer: with 171 registered packets, ids >= 128 arrive as *negative*
+      bytes, and the decoder originally rejected `id < 0` as "not a
+      packet" -- desktop checks `id == -2` (arcnet's framework marker)
+      specifically; and **zero-length payloads are legitimate**
+      (ConnectConfirmCallPacket carries none -- the server identifies the
+      player from the connection), so dropping empty frames made clients
+      render the world but never spawn).
     - **UX**: hosting is the normal pause-menu "Host Server" flow (and PvP
       maps auto-host on world load, which is what the test drives). A room
       overlay shows a copyable invite link; `?join=CODE` auto-joins after
@@ -660,10 +671,16 @@ session is everything since. Steps in order, with reasoning.)
     - **Verification**: `tools/net-test.mjs` runs two FULL game pages in
       two separate headless Chrome instances (host via Play -> Custom
       Game -> Glacier -> PvP -> Play, client via the invite link),
-      asserting: room opens, client connects, world stream received, both
-      sides stay connected with snapshot traffic flowing (screenshots show
-      both rendered worlds). The transport layer alone is covered by the
-      glue test (discovery, ping, handshake, 40 KB fragmentation,
+      asserting: room opens, a third page sees it via lobby presence
+      (the Local Servers path), client connects, world stream received,
+      the server registers the player ("X has connected" -- the
+      zero-payload connectConfirm round trip), and both sides stay
+      connected with snapshot traffic flowing (screenshots show both
+      rendered worlds, the client's unit spawned). Default mode uses the
+      hermetic mock relay; `--supabase [URL|KEY]` runs the same flow
+      against a real project (bare `--supabase` uses the baked-in
+      credentials). The transport layer alone is covered by the glue
+      test (discovery, ping, handshake, 40 KB fragmentation,
       teardown). Two lessons baked into net-test.mjs: (a) two pages in
       ONE headless browser is a trap -- Chrome stops issuing
       requestAnimationFrame for occluded pages entirely, so the background
