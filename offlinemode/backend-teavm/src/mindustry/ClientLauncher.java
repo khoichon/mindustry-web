@@ -257,6 +257,8 @@ public abstract class ClientLauncher extends ApplicationCore implements Platform
                 Events.fire(new ClientLoadEvent());
                 Log.info("Total time to load: @ms", Time.timeSinceMillis(beginTime));
                 clientLoaded = true;
+                // Web invite links (?join=CODE) auto-join once the menu exists.
+                try{ mindustry.net.WebRtcNetProvider.autoJoinIfPending(); }catch(Throwable t){ arc.util.Log.err("auto-join failed", t); }
                 super.resize(graphics.getWidth(), graphics.getHeight());
                 app.post(() -> app.post(() -> app.post(() -> app.post(() -> {
                     super.resize(graphics.getWidth(), graphics.getHeight());

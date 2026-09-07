@@ -163,6 +163,10 @@
          ArcFreeType handle API the Java side calls through JSBody. -->
     <script src="opentype.min.js"></script>
     <script src="freetype-glue.js"></script>
+    <!-- P2P multiplayer glue (WebRTC + signaling; see WebRtcNetProvider).
+         Optional in principle but always loaded: without it the game still
+         runs, multiplayer just reports unavailable. -->
+    <script src="net-glue.js"></script>
     <script src="mindustry.js"></script>
     <script>
         // TeaVM's UMD output attaches the compiled entry point to `window`

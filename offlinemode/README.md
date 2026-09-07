@@ -14,11 +14,11 @@ step taken (with the reasoning behind it), current state, and what's next.
 
 | Path | Remote | Role |
 |---|---|---|
-| `./` | The TeaVM backend + build system + all source-swapped replacements (this folder lives at `offlinemode/` of the khoichon/mindustry-web monorepo) |
-| `./arc/` | git submodule → https://github.com/khoichon/arc, branch `teavm-backend` |
-| `./mindustry/` | git submodule → https://github.com/khoichon/mindustry (pristine v8-era source, commit `f92db08`, 2026-08-27) |
-| `~/code/mindustry-web/` (the monorepo root) | `https://github.com/khoichon/mindustry-web` | The CheerpJ-based online reference build. Its `shim/` (natives-gl.js, natives-freetype.js + opentype.min.js, natives-audio.js, …) is prior art for browser glue; `opentype.min.js` and the freetype conventions were reused here |
-| `~/code/mindustry-web/mindustry.jar` | — | Prebuilt desktop jar (v8 build 159.7, 2026-07-19) — the **asset source** (packed sprite atlas, bundles, sounds, maps). ~5 weeks older than the source tree: new sprites referenced by newer code render as the error texture until the jar is rebuilt |
+| `./` (this repo) | → `offlinemode/` of khoichon/mindustry-web | The TeaVM backend + build system + all source-swapped replacements |
+| `./arc/` | `https://github.com/khoichon/Arc` | Arc engine fork, TeaVM patches committed on branch `teavm-backend` |
+| `../mindustry/` (= `../../mindustry` relative to `backend-teavm/`) | `https://github.com/khoichon/Mindustry` | Mindustry fork — pristine v8-era source (commit `f92db08`, 2026-08-27), kept clean locally |
+| `~/code/mindustry-web/` | `https://github.com/khoichon/mindustry-web` | The CheerpJ-based online reference build. Its `shim/` (natives-gl.js, natives-freetype.js + opentype.min.js, natives-audio.js, …) is prior art for browser glue; `opentype.min.js` and the freetype conventions were reused here |
+| `/Users/chon/code/mindustry-web/mindustry.jar` | — | Prebuilt desktop jar (v8 build 159.7, 2026-07-19) — the **asset source** (packed sprite atlas, bundles, sounds, maps). ~5 weeks older than the source tree: new sprites referenced by newer code render as the error texture until the jar is rebuilt |
 
 ### Where changes go (the upstreaming model)
 
@@ -43,6 +43,14 @@ step taken (with the reasoning behind it), current state, and what's next.
   reads straight from the submodule checkouts, and the swap-copies in
   `src/mindustry/` shrink to only what hasn't been upstreamed yet.
 
+**Canonical published location:** this project is assembled (via git
+submodules for both forks) at
+https://github.com/khoichon/mindustry-web/tree/main/offlinemode — clone
+that for a from-scratch build (`git submodule update --init
+offlinemode/arc offlinemode/mindustry`, then `./gradlew
+:backend-teavm:buildWeb` inside `offlinemode/`). This directory remains
+the active development checkout.
+
 Sibling `../teavmbackend/` is an older snapshot of this project at the
 "triangle test" milestone — useful as a pristine Arc reference when diffing
 in-place arc patches.
@@ -62,7 +70,9 @@ backend-teavm/
                                  Files, Fi, IdbVfs, WebAssets, Console, Launcher
     arc/audio/Soloud.java     -- Web Audio drop-in for the JNI Soloud
     arc/freetype/FreeType.java-- opentype.js drop-in for the JNI FreeType
-    arc/net/{Server,ArcNetException}.java -- arcnet stubs (offline)
+    arc/net/{Server,ArcNetException}.java -- arcnet stubs (real transport
+                                 is WebRTC: mindustry/net/WebRtcNetProvider
+                                 + resources/net-glue.js, §5 item 16)
     arc/util/{Buffers,NativeUtils,UnsafeBuffers,TeavmSimpleExecutor,TeavmFuture}.java
     mindustry/**              -- wholesale replacement copies (see §4.4)
   build/web/                  -- OUTPUT: mindustry.js + assets + manifest
@@ -81,6 +91,10 @@ IndexedDB/fetch on `file://`), e.g. via `tools/boot-test.mjs`.
 ```
 ./gradlew :backend-teavm:buildWeb          # compile + TeaVM + assets + manifest
 node tools/boot-test.mjs --wait 60000 --screenshot build/shots/x.png
+node tools/net-test.mjs                    # two-browser multiplayer test
+                                           # (host + join + world stream;
+                                           # runs tools/mock-signal-server.mjs
+                                           # itself, no Supabase needed)
 ```
 
 Requirements (mirrored in `gradle.properties`):
@@ -90,16 +104,13 @@ Requirements (mirrored in `gradle.properties`):
   required at RUNTIME for the annotation processors (they use
   `com.sun.tools.javac` internals; Mindustry's own gradle.properties does the
   same thing).
-- Arc submodule at `./arc` (branch `teavm-backend`,
-  https://github.com/khoichon/arc/tree/teavm-backend). After cloning the
-  monorepo: `git submodule update --init offlinemode/arc offlinemode/mindustry`.
-- Mindustry submodule at `./mindustry` (the build resolves it via
-  `../mindustry` automatically; override with `-PmindustrySrc=` /
-  `-PmindustryRoot=` for exotic layouts).
-- `mindustry.jar` resolved automatically from `../../mindustry.jar`
-  (monorepo root) or `/Users/chon/code/mindustry-web/mindustry.jar`;
-  override with `-PmindustryJar=`. (The jar is a ~150 MB binary and is
-  deliberately NOT committed.)
+- Arc checked out at `./arc` (build refers to it as `../Arc/...`, resolved
+  case-insensitively on macOS) on the fork's `teavm-backend` branch
+  (https://github.com/khoichon/arc/tree/teavm-backend) -- the old
+  root-level patch diff files are retired and deleted.
+- Mindustry reference at `../../mindustry` (override with
+  `-PmindustrySrc=` / `-PmindustryRoot=`).
+- `mindustry.jar` at the default path (override with `-PmindustryJar=`).
 
 ## 4. The build composition (backend-teavm/build.gradle)
 
@@ -605,6 +616,71 @@ session is everything since. Steps in order, with reasoning.)
     from a projected ~6 min (serial) to ~25 s (pool) — cache cuts the
     repeat visit to little more than script + game init.
 
+16. **Browser-to-browser multiplayer works (milestone 4).** The whole net
+    stack -- NetClient/NetServer, every Packet, the generated Call remoting,
+    NetworkIO world/asset streaming -- was already compiling into the JS
+    bundle; only the transport was stubbed (the old TeavmNetProvider,
+    since deleted). The swap point is `Net.NetProvider`, now implemented
+    by `src/mindustry/net/WebRtcNetProvider.java` over a new page-level
+    glue (`resources/net-glue.js`):
+    - **Transport**: one RTCPeerConnection per client (host) or to the
+      host (client), all game bytes over an ordered+reliable DataChannel.
+      Cross-browser SCTP caps safe message sizes near 16 KB, so every
+      logical message is fragmented with a 1-byte continuation flag and a
+      1-byte type header (game bytes / heartbeat); a 40 KB round-trip is
+      byte-exact in the glue test. Both unreliable and reliable Mindustry
+      sends map to the same channel for now (arcnet falls back to TCP for
+      clients without registered UDP anyway).
+    - **Signaling**: Supabase Realtime (Phoenix over WebSocket, driven
+      from plain JS) carries ONLY hello/welcome, offer/answer/ICE, room
+      presence and ping -- a handful of tiny messages per connection,
+      well inside Realtime's default limits (256 KB payloads / ~10 events
+      per second per client by default; relaying game data through it was
+      rejected partly for exactly that). Everything created in the shared
+      project is prefixed `mindustryweb_` (channels
+      `mindustryweb_room_<code>` and `mindustryweb_lobby`; no tables or
+      edge functions needed -- presence self-cleans when the host leaves).
+      Credentials (project URL + anon key) are entered once in a DOM
+      dialog and kept in localStorage, or preloaded via
+      `?supabase=URL|KEY`.
+    - **Wire format**: ArcNetProvider's PacketSerializer shape minus
+      compression -- [id byte][short length][0][payload]. Both peers run
+      the same bundle, so packet ids always agree. The one real bug in
+      this layer: with 171 registered packets, ids >= 128 arrive as
+      *negative* bytes, and the decoder originally rejected `id < 0` as
+      "not a packet" -- desktop checks `id == -2` (arcnet's framework
+      marker) specifically; match that.
+    - **UX**: hosting is the normal pause-menu "Host Server" flow (and PvP
+      maps auto-host on world load, which is what the test drives). A room
+      overlay shows a copyable invite link; `?join=CODE` auto-joins after
+      boot (seeding a default player name on fresh settings). The Join
+      Game "Local Servers" tab lists announced rooms via lobby presence,
+      and the manual add-server field accepts a room code (pingHost
+      answers over the signaling channel).
+    - **Verification**: `tools/net-test.mjs` runs two FULL game pages in
+      two separate headless Chrome instances (host via Play -> Custom
+      Game -> Glacier -> PvP -> Play, client via the invite link),
+      asserting: room opens, client connects, world stream received, both
+      sides stay connected with snapshot traffic flowing (screenshots show
+      both rendered worlds). The transport layer alone is covered by the
+      glue test (discovery, ping, handshake, 40 KB fragmentation,
+      teardown). Two lessons baked into net-test.mjs: (a) two pages in
+      ONE headless browser is a trap -- Chrome stops issuing
+      requestAnimationFrame for occluded pages entirely, so the background
+      host's frame loop and posted-task queue freeze, which masquerades as
+      a netcode deadlock; (b) passing the instant the world arrives can
+      race a post-join failure -- the test now waits 5 s and re-checks
+      the connection.
+    - **Known limits**: the host tab must stay visible (RAF-driven game
+      loop; backgrounded = paused server for everyone). No TURN, so
+      symmetric-NAT pairs can fail ICE (needs a graceful fallback later).
+      Framework messages/LZ4 are absent by design -- desktop-server
+      compatibility is a later phase (a desktop mod bridging vanilla TCP
+      over the same signaling). The mock relay
+      (`tools/mock-signal-server.mjs`, `?signal=ws://...`) exists so all
+      of this tests end-to-end without any Supabase project; Supabase
+      mode itself still needs a live check against a real project.
+
 ## 6. Verification status
 
 - `:backend-teavm:buildWeb` — **green** end to end (javac + annotation
@@ -620,7 +696,11 @@ session is everything since. Steps in order, with reasoning.)
 - Exercised and working: menu input (clicks navigate Play → Custom Game →
   map card → launch dialog → play), full world load on built-in maps
   including previously-broken Archipelago (`build/shots/preview-fix-world.png`),
-  all map previews render.
+  all map previews render, **and browser-to-browser multiplayer** via
+  `tools/net-test.mjs` (two game pages in two headless Chrome instances:
+  PvP autohost, invite-link join, world stream, stable snapshot traffic;
+  screenshots `build/shots/net-host-with-peer.png` /
+  `net-client-world.png` show both rendered worlds) — see §5 item 16.
 - **File import/export is browser-native and round-trips byte-exact**
   (`tools/fileio-test.mjs`, exit 0): Import Save opens the browser's file
   picker (headless test drives the game's hidden `#ms-file-input` via
