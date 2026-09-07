@@ -1,6 +1,8 @@
 // net-test.mjs -- end-to-end multiplayer test between two full game pages.
 //
-//  1. Serves the folder build + the mock signal relay (no Supabase needed)
+//  1. Serves the folder build + the mock signal relay (no Supabase needed),
+//     or a real Supabase project when --supabase 'URL|anonkey' is given
+//     (live-check mode: real Realtime signaling, real STUN/WebRTC)
 //  2. Page A boots the game and hosts: Play -> Custom Game -> Glacier -> PvP
 //     -> Play (PvP maps auto-host on world load, Control.java's autohost)
 //  3. Page B opens the invite link (?join=CODE&signal=...) which auto-joins
@@ -26,6 +28,14 @@ fs.mkdirSync(shots, {recursive: true});
 const SIGNAL_PORT = 9081;
 const signalUrl = `ws://127.0.0.1:${SIGNAL_PORT}`;
 
+// --supabase 'https://<ref>.supabase.co|<publishable/anon key>' switches the
+// whole test onto a real Supabase project (no mock relay is started).
+function arg(name){
+    const i = process.argv.indexOf(name);
+    return i >= 0 ? process.argv[i + 1] : null;
+}
+const supabase = arg('--supabase');
+
 const MIME = {'.html':'text/html','.js':'text/javascript','.png':'image/png','.ogg':'audio/ogg','.ttf':'font/ttf','.atls':'application/octet-stream','.msav':'application/octet-stream'};
 const server = http.createServer((req,res)=>{
     let p = decodeURIComponent(new URL(req.url,'http://localhost').pathname);
@@ -38,8 +48,12 @@ const server = http.createServer((req,res)=>{
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const port = server.address().port;
 
-const relay = spawn('node', [path.join(repo, 'tools/mock-signal-server.mjs'), String(SIGNAL_PORT)], {stdio:['ignore','pipe','pipe']});
-relay.stdout.on('data', d => process.stdout.write('[relay] ' + d));
+const relay = supabase ? null : spawn('node', [path.join(repo, 'tools/mock-signal-server.mjs'), String(SIGNAL_PORT)], {stdio:['ignore','pipe','pipe']});
+if(relay) relay.stdout.on('data', d => process.stdout.write('[relay] ' + d));
+// page query: mock relay override, or Supabase credential preload
+const pageQuery = supabase
+    ? `supabase=${encodeURIComponent(supabase)}`
+    : `signal=${encodeURIComponent(signalUrl)}`;
 await new Promise(r=>setTimeout(r,600));
 
 const browserArgs = ['--no-sandbox','--disable-dev-shm-usage','--disable-features=WebRtcHideLocalIpsWithMdns',
@@ -103,7 +117,7 @@ const click = async(page, x, y, settle) => { await page.mouse.click(x, y); await
 try{
     // --- page A: boot + host a PvP world (autohosts) ---
     const {page: A} = await newGamePage('A', browserA);
-    await bootAndWaitLoaded(A, `http://127.0.0.1:${port}/index.html?signal=${encodeURIComponent(signalUrl)}`);
+    await bootAndWaitLoaded(A, `http://127.0.0.1:${port}/index.html?${pageQuery}`);
     console.log('[net-test] A booted; navigating to a PvP world');
     await click(A, 240, 231, 2500);   // Play
     await click(A, 493, 370, 2500);   // Custom Game
@@ -117,10 +131,26 @@ try{
     const code = stA.room;
     await A.screenshot({path: path.join(shots, 'net-host-world.png')});
 
+    // --- discovery check: a third page must list the room (the "Local
+    // Servers" tab path -- lobby presence, not the invite link) ---
+    {
+        const {page: C} = await newGamePage('C', browserB);
+        await bootAndWaitLoaded(C, `http://127.0.0.1:${port}/index.html?${pageQuery}`);
+        await C.evaluate(() => window.__msNetDiscoverRooms());
+        let found = false;
+        for(let i = 0; i < 12 && !found; i++){
+            await sleep(600);
+            const st = JSON.parse(await C.evaluate(() => window.__msNetState()));
+            found = (st.knownRooms || 0) > 0;
+        }
+        check('Local Servers sees the room (lobby presence)', found);
+        await C.close();
+    }
+
     // --- page B: invite link, auto-join ---
     const {page: B, lines: linesB} = await newGamePage('B', browserB);
     console.log(`[net-test] B joining room ${code} via invite link`);
-    await bootAndWaitLoaded(B, `http://127.0.0.1:${port}/index.html?signal=${encodeURIComponent(signalUrl)}&join=${code}`);
+    await bootAndWaitLoaded(B, `http://127.0.0.1:${port}/index.html?${pageQuery}&join=${code}`);
     await B.evaluate(() => window.__msNetDebug && window.__msNetDebug(true));
 
     // world stream can take a while headless; poll for up to 90 s
@@ -166,5 +196,5 @@ try{
     failures++;
 }
 
-await browserA.close(); await browserB.close(); server.close(); relay.kill();
+await browserA.close(); await browserB.close(); server.close(); if(relay) relay.kill();
 process.exit(failures === 0 ? 0 : 1);
