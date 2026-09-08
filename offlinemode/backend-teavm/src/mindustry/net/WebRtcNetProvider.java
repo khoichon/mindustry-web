@@ -163,14 +163,20 @@ public class WebRtcNetProvider implements Net.NetProvider{
         String name = Strings.stripColors(Core.settings.getString("name", "Player"));
         if(name.isEmpty()) name = "Player";
 
-        jsHost(name, (ok, codeOrErr) -> Core.app.post(() -> {
+        // Optional lobby password, asked with the browser's native prompt:
+        // empty/cancel = open lobby. The password lives only in the glue and
+        // never enters lobby presence (just a pw:true flag).
+        String entered = jsPrompt("Set a password for this lobby -- leave empty for an open lobby:");
+        final String password = (entered == null ? "" : entered).trim();
+
+        jsHost(name, password, (ok, codeOrErr) -> Core.app.post(() -> {
             if(ok){
                 hosting = true;
                 room = codeOrErr;
                 connections.clear();
                 jsShowRoom(room);
                 pushStatus();
-                Log.info("[p2p] Hosting room @", room);
+                Log.info("[p2p] Hosting room @ @", room, password.isEmpty() ? "(open)" : "(password-protected)");
             }else{
                 // Net.host() already flipped the active/server flags -- undo them
                 net.closeServer();
@@ -270,9 +276,9 @@ public class WebRtcNetProvider implements Net.NetProvider{
                 }catch(IllegalArgumentException ex){
                     mode = Gamemode.survival;
                 }
-                Host host = new Host(0, r.name == null ? "Room" : r.name, r.room, port,
+                Host host = new Host(0, roomLabel(r), r.room, port,
                     r.map == null ? "Unknown" : r.map, r.wave, Math.max(1, r.players),
-                    Version.build, "official", mode, r.limit, "", r.mode);
+                    Version.build, "official", mode, r.limit, roomDescription(r), r.mode);
                 pendingDiscovery.get(host);
             }
         }catch(Throwable t){
@@ -306,9 +312,9 @@ public class WebRtcNetProvider implements Net.NetProvider{
                 }catch(IllegalArgumentException ex){
                     mode = Gamemode.survival;
                 }
-                Host host = new Host(0, r.name == null ? "Room" : r.name, code, port,
+                Host host = new Host(0, roomLabel(r), code, port,
                     r.map == null ? "Unknown" : r.map, r.wave, Math.max(1, r.players),
-                    r.version <= 0 ? Version.build : r.version, "official", mode, r.limit, "", r.mode);
+                    r.version <= 0 ? Version.build : r.version, "official", mode, r.limit, roomDescription(r), r.mode);
                 valid.get(host);
             }catch(Throwable t){
                 invalid.get(new IOException(t));
@@ -495,6 +501,16 @@ public class WebRtcNetProvider implements Net.NetProvider{
     public static class RoomEntry{
         public String room, name, map, mode;
         public int players, wave, version, limit;
+        public boolean pw;
+    }
+
+    /** Display label for a lobby entry -- passworded ones are unmistakable. */
+    static String roomLabel(RoomEntry r){
+        return (r.name == null || r.name.isEmpty() ? "Room" : r.name) + (r.pw ? " [accent][PW][]" : "");
+    }
+
+    static String roomDescription(RoomEntry r){
+        return r.pw ? "[scarlet]Password required to join.[]" : "";
     }
 
     // ------------------------------------------------------------------ JS bridge
@@ -535,10 +551,12 @@ public class WebRtcNetProvider implements Net.NetProvider{
     @JSBody(params = "cb", script = "window.__msNetOnError(function(m){cb(m);});")
     static native void onError(StrCallback cb);
 
-    @JSBody(params = {"name", "cb"}, script = "window.__msNetHost(name, function(ok, s){cb(ok, s);});")
-    static native void jsHost(String name, BoolStrCallback cb);
-    @JSBody(params = {"code", "cb"}, script = "window.__msNetJoin(code, function(ok, s){cb(ok, s);});")
+    @JSBody(params = {"name", "password", "cb"}, script = "window.__msNetHost(name, password, function(ok, s){cb(ok, s);});")
+    static native void jsHost(String name, String password, BoolStrCallback cb);
+    @JSBody(params = {"code", "cb"}, script = "window.__msNetJoin(code, null, function(ok, s){cb(ok, s);});")
     static native void jsJoin(String code, BoolStrCallback cb);
+    @JSBody(params = "msg", script = "try{return window.__msNetPrompt ? window.__msNetPrompt(msg) : (window.prompt ? window.prompt(msg) : null);}catch(e){return null;}")
+    static native @Nullable String jsPrompt(String msg);
     @JSBody(params = {"code", "cb"}, script = "window.__msNetPing(code, function(ok, s){cb(ok, s);});")
     static native void jsPing(String code, BoolStrCallback cb);
     @JSBody(params = "view", script = "window.__msNetSend(view);")
