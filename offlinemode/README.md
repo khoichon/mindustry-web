@@ -662,12 +662,21 @@ session is everything since. Steps in order, with reasoning.)
       player from the connection), so dropping empty frames made clients
       render the world but never spawn).
     - **UX**: hosting is the normal pause-menu "Host Server" flow (and PvP
-      maps auto-host on world load, which is what the test drives). A room
-      overlay shows a copyable invite link; `?join=CODE` auto-joins after
-      boot (seeding a default player name on fresh settings). The Join
-      Game "Local Servers" tab lists announced rooms via lobby presence,
-      and the manual add-server field accepts a room code (pingHost
-      answers over the signaling channel).
+      maps auto-host on world load, which is what the test drives); the
+      browser's native `prompt()` asks for an optional lobby password
+      (empty/cancel = open lobby -- the password stays on the host and
+      only a `pw:true` flag enters presence). The Join Game "Local
+      Servers" tab lists every announced lobby; passworded ones are
+      marked with `[PW]` in the title and a "Password required to join."
+      description line, and joining one prompts for the password (a few
+      attempts, then refusal; wrong/missing passwords never open a
+      DataChannel). A room overlay still shows a copyable invite link;
+      `?join=CODE` auto-joins after boot (seeding a default player name
+      on fresh settings), and the manual add-server field accepts a room
+      code (pingHost answers over the signaling channel). Prompts are
+      skipped under automation (`navigator.webdriver`): headless Chrome
+      blocks on native dialogs instead of auto-dismissing them, which
+      would wedge tests and kiosks.
     - **Verification**: `tools/net-test.mjs` runs two FULL game pages in
       two separate headless Chrome instances (host via Play -> Custom
       Game -> Glacier -> PvP -> Play, client via the invite link),

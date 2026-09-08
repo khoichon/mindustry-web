@@ -201,8 +201,10 @@ other in both directions; separate sourceSets cannot express that):
   IndexedDB writes (up to 2s) before stopping so a post-import reload
   can't abort them (README §5 item 12). **Multiplayer is live (README §5
   item 16)**: `WebRtcNetProvider` + `resources/net-glue.js` implement
-  NetProvider over WebRTC DataChannels (browser↔browser host/join, room
-  codes, `?join=CODE` invite links, Local-tab room discovery); signaling
+  NetProvider over WebRTC DataChannels (browser↔browser host/join, the
+  Local Servers lobby list, optional lobby passwords via browser prompt()
+  — skipped under navigator.webdriver, since headless Chrome blocks on
+  native dialogs, `?join=CODE` invite links); signaling
   is Supabase Realtime with EVERYTHING prefixed `mindustryweb_` (creds:
   `?supabase=URL|KEY` > DOM dialog/localStorage > baked-in DEFAULT_CREDS
   in net-glue.js — a publishable key, safe to ship; `?signal=ws://…`

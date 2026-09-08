@@ -88,6 +88,17 @@ function normCode(code) {
 function validCode(code) {
     return /^[A-Z0-9]{4,10}$/.test(code);
 }
+// window.prompt wrapper: under automation (headless Chrome) native dialogs
+// BLOCK the page forever instead of auto-dismissing, which would wedge both
+// tests and headless kiosks -- so skip them there (null = canceled).
+function askPrompt(msg) {
+    try {
+        if (navigator.webdriver) return null;
+        if (window.__msNetNoPrompt) return null;
+        return window.prompt ? window.prompt(msg) : null;
+    } catch (e) { return null; }
+}
+window.__msNetPrompt = askPrompt; // Java's host-password prompt uses the same guard
 
 // ---------------------------------------------------------------- credentials
 
@@ -172,8 +183,9 @@ function showRoom(code) {
     roomOverlay.innerHTML =
         '<div id="msnet-room-box">' +
         '<div class="msnet-title">Room open</div>' +
-        '<div class="msnet-text">Friends join with this code from the Join Game dialog, or with the link ' +
-        'below (it opens the game and joins automatically).</div>' +
+        '<div class="msnet-text">Friends find this lobby in the Join Game list. Anyone with the link ' +
+        'below joins directly' + (S.password ? ' (after entering the password <b>' + S.password + '</b>)' : '') +
+        '.</div>' +
         '<div id="msnet-code">' + code + '</div>' +
         '<input id="msnet-link" type="text" readonly spellcheck="false">' +
         '<div class="msnet-row">' +
@@ -402,7 +414,7 @@ function pushRooms() {
         arr.push({
             room: r, name: mt.name || 'Room', map: mt.map || '', players: mt.players || 1,
             wave: mt.wave || 0, version: mt.version != null ? mt.version : -1,
-            limit: mt.limit || 16, mode: mt.mode || ''
+            limit: mt.limit || 16, mode: mt.mode || '', pw: !!mt.pw
         });
     }
     try { S.cbs.rooms(JSON.stringify(arr)); } catch (e) { err('rooms-cb', e); }
@@ -416,14 +428,24 @@ function roomMsg(o) {
     if (S.hosting && S.room) {
         if (o.ev === 'hello') {
             var full = Object.keys(S.peers).length >= ((S.status.limit | 0) || 16);
-            roomSend(S.room, { ev: 'welcome', ok: !full, reason: full ? 'server is full' : '' }, o.from);
-            if (!full) makeHostPeer(o.from);
+            if (full) {
+                roomSend(S.room, { ev: 'welcome', ok: false, reason: 'server is full' }, o.from);
+                return;
+            }
+            if (S.password && o.pw !== S.password) {
+                // wrong or missing password: needPw lets the client prompt()
+                roomSend(S.room, { ev: 'welcome', ok: false, needPw: true,
+                    reason: o.pw == null ? 'this lobby requires a password' : 'wrong password' }, o.from);
+                return;
+            }
+            roomSend(S.room, { ev: 'welcome', ok: true, reason: '' }, o.from);
+            makeHostPeer(o.from);
         } else if (o.ev === 'answer' && S.peers[o.from]) {
             S.peers[o.from].pc.setRemoteDescription(o.sdp).catch(function (e) { err('answer', e); dropPeer(o.from); });
         } else if (o.ev === 'ice' && S.peers[o.from]) {
             if (o.c) S.peers[o.from].pc.addIceCandidate(o.c).catch(function (e) { err('ice-host', e); });
         } else if (o.ev === 'pingreq') {
-            roomSend(S.room, { ev: 'pingresp', st: S.status }, o.from);
+            roomSend(S.room, { ev: 'pingresp', st: Object.assign({}, S.status, { pw: !!S.password }) }, o.from);
         }
         return;
     }
@@ -431,6 +453,18 @@ function roomMsg(o) {
     // client side
     if (o.ev === 'welcome' && S.join && !S.join.done) {
         if (o.ok) return; // offer arrives next and completes the handshake
+        if (o.needPw || /password/.test(o.reason || '')) {
+            // password-protected lobby: browser-native prompt, then retry
+            // the hello with the entered password (a few attempts, then give
+            // up with the reason -- cancel/empty means no more attempts)
+            if ((S.join.pwTries | 0) >= 3) { settleJoin(false, 'wrong password'); return; }
+            S.join.pwTries = (S.join.pwTries | 0) + 1;
+            var pw = askPrompt('This lobby requires a password' +
+                (o.reason && o.reason.indexOf('wrong') === 0 ? ' (wrong password, try again)' : '') + ':');
+            if (pw == null || pw === '') { settleJoin(false, 'password required'); return; }
+            roomSend(S.room, { ev: 'hello', pw: pw });
+            return;
+        }
         settleJoin(false, o.reason || 'refused');
     } else if (o.ev === 'offer' && S.client && !S.client.pc.remoteDescription) {
         var pc = S.client.pc;
@@ -677,16 +711,18 @@ function hostMetas() {
     return {
         room: S.room, hostId: S.myId,
         name: S.status.name, map: S.status.map, players: S.status.players,
-        wave: S.status.wave, version: S.status.version, limit: S.status.limit, mode: S.status.mode
+        wave: S.status.wave, version: S.status.version, limit: S.status.limit, mode: S.status.mode,
+        pw: !!S.password // flag only -- the password itself never leaves the host
     };
 }
 
-window.__msNetHost = function (name, cb) {
+window.__msNetHost = function (name, password, cb) {
     if (typeof cb !== 'function') cb = function () {};
     if (S.hosting) { cb(true, S.room); return; }
     if (S.client) { cb(false, 'already connecting to a room'); return; }
     if (!S.myId) S.myId = rid();
     S.status.name = String(name || 'Server').slice(0, 40);
+    S.password = String(password || ''); // optional join password; '' = open lobby
     startHbLoop();
     busConnect(function (ok, why) {
         if (!ok) { cb(false, 'signal connect failed: ' + why); return; }
@@ -698,7 +734,7 @@ window.__msNetHost = function (name, cb) {
                 S.lobbyJoined = true;
                 lobbyTrack(hostMetas()); // presence metas ride a track push in supabase mode
                 setTimeout(function () { if (S.hosting) lobbyTrack(hostMetas()); }, 3000);
-                log('hosting room', code);
+                log('hosting room', code, S.password ? '(password-protected)' : '(open)');
                 cb(true, code);
             });
         });
@@ -722,6 +758,7 @@ window.__msNetUpdateStatus = function (json) {
 function stopHost() {
     if (!S.hosting && !S.room) return;
     S.hosting = false;
+    S.password = '';
     var room = S.room;
     S.room = null;
     hideRoom();
@@ -736,7 +773,10 @@ function stopHost() {
 }
 window.__msNetStopHost = stopHost;
 
-window.__msNetJoin = function (code, cb) {
+// join a room. password (optional) preempts the prompt() for known passwords
+// (e.g. programmatic joins); without one, the glue prompts when the host
+// demands a password.
+window.__msNetJoin = function (code, password, cb) {
     if (typeof cb !== 'function') cb = function () {};
     if (S.hosting) { cb(false, 'cannot join while hosting'); return; }
     if (S.client) { cb(false, 'already connecting'); return; }
@@ -749,14 +789,14 @@ window.__msNetJoin = function (code, cb) {
         S.room = code;
         S.joined = true;
         S.join = {
-            cb: cb, done: false,
+            cb: cb, done: false, pw: password || null, pwTries: password ? 1 : 0,
             timer: setTimeout(function () {
                 settleJoin(false, 'could not reach the room (wrong code, or the host is gone)');
             }, JOIN_TIMEOUT)
         };
         roomJoin(code, function () {
             startClientPeer();
-            roomSend(code, { ev: 'hello' });
+            roomSend(code, { ev: 'hello', pw: password || undefined });
         });
     });
 };
