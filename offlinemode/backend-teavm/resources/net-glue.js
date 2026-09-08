@@ -173,42 +173,11 @@ function askCreds(cb) {
 }
 
 // room-code share overlay
-var roomOverlay = null;
-function showRoom(code) {
-    hideRoom();
-    var link = location.origin + location.pathname + '?join=' + code;
-    if (S.mode === 'mock') link += '&signal=' + encodeURIComponent(S.signalUrl);
-    roomOverlay = document.createElement('div');
-    roomOverlay.id = 'msnet-room';
-    roomOverlay.innerHTML =
-        '<div id="msnet-room-box">' +
-        '<div class="msnet-title">Room open</div>' +
-        '<div class="msnet-text">Friends find this lobby in the Join Game list. Anyone with the link ' +
-        'below joins directly' + (S.password ? ' (after entering the password <b>' + S.password + '</b>)' : '') +
-        '.</div>' +
-        '<div id="msnet-code">' + code + '</div>' +
-        '<input id="msnet-link" type="text" readonly spellcheck="false">' +
-        '<div class="msnet-row">' +
-        '<button id="msnet-copy">Copy link</button>' +
-        '<button id="msnet-close">Close</button>' +
-        '</div></div>';
-    document.body.appendChild(roomOverlay);
-    roomOverlay.querySelector('#msnet-link').value = link;
-    roomOverlay.querySelector('#msnet-copy').onclick = function () {
-        var inp = roomOverlay.querySelector('#msnet-link'), btn = this;
-        try {
-            inp.select();
-            document.execCommand('copy');
-            if (navigator.clipboard) navigator.clipboard.writeText(link);
-            btn.textContent = 'Copied!';
-            setTimeout(function () { btn.textContent = 'Copy link'; }, 1200);
-        } catch (e) {}
-    };
-    roomOverlay.querySelector('#msnet-close').onclick = hideRoom;
-}
-function hideRoom() {
-    if (roomOverlay) { roomOverlay.remove(); roomOverlay = null; }
-}
+// The room-code overlay is gone: lobbies are joined from the Local Servers
+// list (the code lives on only as the internal channel name and inside
+// hand-built ?join=CODE invite links, which still work).
+function showRoom(code) { /* no UI */ }
+function hideRoom() { /* no UI */ }
 
 // ---------------------------------------------------------------- signal bus
 
@@ -240,11 +209,7 @@ function busConnect(cb) {
     S.ws = ws;
     ws.onopen = function () {
         S.wsReady = true;
-        if (S.mode === 'supabase') {
-            S.wsHbTimer = setInterval(function () {
-                busRaw({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++S.ref) });
-            }, 25000);
-        }
+        if (S.mode === 'supabase') startBusKeepalive();
         log('signal bus connected (' + S.mode + ')');
         cb(true, '');
     };
@@ -257,15 +222,64 @@ function busConnect(cb) {
     };
 }
 
+// Phoenix-level heartbeat, driven from a Web Worker: background/occluded
+// tabs get their timers clamped to ~once a minute, which starves the 25 s
+// heartbeat and makes Realtime drop the socket -- killing lobby presence
+// for a host who merely switched tabs. Dedicated workers are not throttled.
+function startBusKeepalive() {
+    if (S.wsHbTimer) return;
+    var beat = function () {
+        busRaw({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++S.ref) });
+    };
+    try {
+        var src = 'setInterval(function(){postMessage(1);},20000);';
+        var w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })));
+        w.onmessage = beat;
+        S.wsHbTimer = { worker: w }; // marker so the guard above holds
+    } catch (e) {
+        // no workers (some file:// setups): best-effort interval, subject to
+        // the very throttling described above
+        S.wsHbTimer = setInterval(beat, 25000);
+    }
+}
+
 function busDown() {
     var wasReady = S.wsReady;
     S.ws = null; S.wsReady = false; S.joined = false; S.lobbyJoined = false; S.lobby = {};
-    if (S.wsHbTimer) { clearInterval(S.wsHbTimer); S.wsHbTimer = null; }
     if (wasReady) {
         err('signal bus disconnected');
-        if (S.hosting) stopHost();
-        else if (S.client) clientDown('signal lost');
+        if (S.hosting) {
+            // Signaling loss does NOT touch the P2P DataChannels -- connected
+            // players keep playing. Rejoin and re-announce the lobby instead
+            // of tearing it down; give up only after repeated failure.
+            hostReconnect();
+        }else if (S.join && !S.join.done){
+            settleJoin(false, 'signal lost');
+        }
+        // a fully connected client keeps its DataChannel without signaling
     }
+}
+
+var hostReconnectTries = 0;
+function hostReconnect() {
+    if (hostReconnectTries >= 5) { err('signal bus lost; lobby closed'); stopHost(); return; }
+    hostReconnectTries++;
+    setTimeout(function () {
+        if (!S.hosting) return;
+        log('rejoining signal bus after loss (try ' + hostReconnectTries + ')');
+        busConnect(function (ok) {
+            if (!S.hosting) return;
+            if (!ok) { hostReconnect(); return; }
+            hostReconnectTries = 0;
+            roomJoin(S.room, function () {
+                roomJoin('lobby', function () {
+                    S.lobbyJoined = true;
+                    lastMetasJson = ''; // force a fresh presence track
+                    lobbyTrackIfChanged();
+                });
+            });
+        });
+    }, 2000);
 }
 
 function busRaw(obj) {
@@ -716,6 +730,18 @@ function hostMetas() {
     };
 }
 
+// Presence updates are rate-limited server-side (~5 per client per 30 s),
+// so only track when the announced lobby actually changed.
+var lastMetasJson = '';
+function lobbyTrackIfChanged() {
+    if (!S.hosting || !S.lobbyJoined) return;
+    var metas = hostMetas();
+    var j = JSON.stringify(metas);
+    if (j === lastMetasJson) return;
+    lastMetasJson = j;
+    lobbyTrack(metas);
+}
+
 window.__msNetHost = function (name, password, cb) {
     if (typeof cb !== 'function') cb = function () {};
     if (S.hosting) { cb(true, S.room); return; }
@@ -732,8 +758,8 @@ window.__msNetHost = function (name, password, cb) {
             S.hosting = true;
             roomJoin('lobby', function () {
                 S.lobbyJoined = true;
-                lobbyTrack(hostMetas()); // presence metas ride a track push in supabase mode
-                setTimeout(function () { if (S.hosting) lobbyTrack(hostMetas()); }, 3000);
+                lobbyTrackIfChanged(); // initial announce (mock mode needs no track)
+                setTimeout(function () { if (S.hosting) lobbyTrackIfChanged(); }, 3000); // settle refresh
                 log('hosting room', code, S.password ? '(password-protected)' : '(open)');
                 cb(true, code);
             });
@@ -752,7 +778,7 @@ window.__msNetUpdateStatus = function (json) {
         if (typeof st.limit === 'number') S.status.limit = st.limit;
         if (typeof st.mode === 'string') S.status.mode = st.mode;
     } catch (e) { return; }
-    if (S.hosting && S.lobbyJoined) lobbyTrack(hostMetas());
+    if (S.hosting && S.lobbyJoined) lobbyTrackIfChanged();
 };
 
 function stopHost() {
@@ -831,7 +857,7 @@ window.__msNetDiscoverRooms = function () {
         if (S.lobbyJoined) { pushRooms(); return; }
         roomJoin('lobby', function () {
             S.lobbyJoined = true;
-            if (S.hosting) lobbyTrack(hostMetas());
+            if (S.hosting) lobbyTrackIfChanged();
             // presence syncs asynchronously; snapshot a few times after join
             setTimeout(pushRooms, 600);
             setTimeout(pushRooms, 1600);
@@ -935,18 +961,16 @@ window.__msNetAutoJoin = function () {
 // dialog/overlay styling (injected once)
 (function () {
     var css =
-        '#msnet-shade,#msnet-room{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(10,10,14,0.75);font:14px/1.5 -apple-system,\'Segoe UI\',Roboto,sans-serif}' +
-        '#msnet-box,#msnet-room-box{width:420px;max-width:90vw;background:#1d1d24;border:1px solid #3a3a44;border-radius:8px;padding:22px;color:#c9c9d4;box-shadow:0 12px 40px rgba(0,0,0,.5)}' +
+        '#msnet-shade{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(10,10,14,0.75);font:14px/1.5 -apple-system,\'Segoe UI\',Roboto,sans-serif}' +
+        '#msnet-box{width:420px;max-width:90vw;background:#1d1d24;border:1px solid #3a3a44;border-radius:8px;padding:22px;color:#c9c9d4;box-shadow:0 12px 40px rgba(0,0,0,.5)}' +
         '.msnet-title{font-size:18px;font-weight:600;color:#ffd37f;margin-bottom:10px}' +
         '.msnet-text{font-size:13px;color:#9c9ca8;margin-bottom:14px}' +
         '.msnet-label{display:block;font-size:12px;color:#7d7d8a;margin:10px 0 4px}' +
-        '#msnet-box input,#msnet-room input{width:100%;box-sizing:border-box;background:#131318;border:1px solid #3a3a44;border-radius:4px;color:#e6e6ee;padding:8px 10px;font:13px/1.4 monospace}' +
+        '#msnet-box input{width:100%;box-sizing:border-box;background:#131318;border:1px solid #3a3a44;border-radius:4px;color:#e6e6ee;padding:8px 10px;font:13px/1.4 monospace}' +
         '#msnet-err{color:#ff7b72;font-size:12px;min-height:16px;margin-top:8px}' +
         '.msnet-row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}' +
         '.msnet-row button{background:#2c2c36;color:#e6e6ee;border:1px solid #4a4a56;border-radius:4px;padding:8px 16px;cursor:pointer;font-size:13px}' +
         '.msnet-row button:hover{background:#3a3a48}' +
-        '#msnet-code{font:28px/1.2 monospace;letter-spacing:.35em;text-align:center;color:#ffd37f;background:#131318;border:1px dashed #4a4a56;border-radius:6px;padding:14px 0;margin:6px 0 10px}' +
-        '#msnet-room input{font-size:11px}' +
         '#msnet-box code{color:#ffd37f}';
     var st = document.createElement('style');
     st.textContent = css;

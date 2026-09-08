@@ -666,17 +666,29 @@ session is everything since. Steps in order, with reasoning.)
       browser's native `prompt()` asks for an optional lobby password
       (empty/cancel = open lobby -- the password stays on the host and
       only a `pw:true` flag enters presence). The Join Game "Local
-      Servers" tab lists every announced lobby; passworded ones are
-      marked with `[PW]` in the title and a "Password required to join."
-      description line, and joining one prompts for the password (a few
-      attempts, then refusal; wrong/missing passwords never open a
-      DataChannel). A room overlay still shows a copyable invite link;
-      `?join=CODE` auto-joins after boot (seeding a default player name
-      on fresh settings), and the manual add-server field accepts a room
-      code (pingHost answers over the signaling channel). Prompts are
-      skipped under automation (`navigator.webdriver`): headless Chrome
-      blocks on native dialogs instead of auto-dismissing them, which
-      would wedge tests and kiosks.
+      Servers" tab lists every announced lobby -- that is THE way to
+      join; passworded entries are marked with `[PW]` in the title and a
+      "Password required to join." description line, and joining one
+      prompts for the password (a few attempts, then refusal;
+      wrong/missing passwords never open a DataChannel). The old
+      room-code overlay is gone (the code survives internally and in
+      hand-built `?join=CODE` links, which auto-join after boot and seed
+      a default player name on fresh settings). Prompts are skipped
+      under automation (`navigator.webdriver`): headless Chrome blocks
+      on native dialogs instead of auto-dismissing them, which would
+      wedge tests and kiosks.
+    - **Background-host robustness**: occluding the host tab clamps its
+      timers to ~once a minute (Chrome), which used to starve the 25 s
+      Realtime heartbeat -- Supabase dropped the socket and the lobby
+      silently vanished from the list (the P2P game itself froze anyway,
+      but the announcement died within ~a minute). The heartbeat now
+      comes from an unthrottled Web Worker; presence tracks are
+      change-gated (Realtime rate-limits them ~5/30 s per client); and a
+      signaling drop no longer tears down a lobby -- the glue rejoins
+      and re-announces (connected DataChannels are unaffected by
+      signaling loss), giving up only after repeated failure. Verified
+      with a live occlusion test: a passworded host tab backgrounded for
+      2+ minutes stays discoverable.
     - **Verification**: `tools/net-test.mjs` runs two FULL game pages in
       two separate headless Chrome instances (host via Play -> Custom
       Game -> Glacier -> PvP -> Play, client via the invite link),
