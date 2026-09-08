@@ -202,9 +202,14 @@ other in both directions; separate sourceSets cannot express that):
   can't abort them (README §5 item 12). **Multiplayer is live (README §5
   item 16)**: `WebRtcNetProvider` + `resources/net-glue.js` implement
   NetProvider over WebRTC DataChannels (browser↔browser host/join, the
-  Local Servers lobby list, optional lobby passwords via browser prompt()
-  — skipped under navigator.webdriver, since headless Chrome blocks on
-  native dialogs, `?join=CODE` invite links); signaling
+  Local Servers lobby list is THE join path, optional lobby passwords
+  via browser prompt() — skipped under navigator.webdriver, since
+  headless Chrome blocks on native dialogs; `?join=CODE` links still
+  work); the Realtime heartbeat rides an unthrottled Web Worker because
+  occluded tabs get timer-clamped (a backgrounded host used to silently
+  lose its lobby announcement), presence tracks are change-gated
+  (~5/30s rate limit), and signaling loss rejoins instead of closing
+  the lobby; signaling
   is Supabase Realtime with EVERYTHING prefixed `mindustryweb_` (creds:
   `?supabase=URL|KEY` > DOM dialog/localStorage > baked-in DEFAULT_CREDS
   in net-glue.js — a publishable key, safe to ship; `?signal=ws://…`
