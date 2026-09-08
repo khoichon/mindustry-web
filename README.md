@@ -2,7 +2,7 @@
 
 An unofficial web port of [Mindustry](https://github.com/Anuken/Mindustry) with two separate browser builds:
 
-* **Online / CheerpJ** — runs the actual Mindustry JAR inside a WebAssembly JVM.
+* **Online / CheerpJ** *(deprecated)* — runs the actual Mindustry JAR inside a WebAssembly JVM.
 * **Offline / TeaVM** — compiles a modified Arc + Mindustry directly to JavaScript, with the goal of producing a completely self-contained HTML file.
 
 **Play:** https://khoichon.dev/mindustry-web/
@@ -35,9 +35,8 @@ This project takes two different approaches to getting Mindustry running on the 
 The two builds are **not the same implementation**. They exist as separate pipelines with different goals and trade-offs.
 
 ---
-
-## Online build — CheerpJ
-
+## Online build — CheerpJ 
+*(DEPRECATED, DO NOT USE)*
 The online version runs the **actual Mindustry `.jar`** rather than reimplementing the game in JavaScript.
 
 [CheerpJ](https://cheerpj.com/) provides a JVM implemented using WebAssembly, allowing the game's Java bytecode to execute inside the browser.
