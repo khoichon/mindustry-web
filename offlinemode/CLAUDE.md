@@ -30,6 +30,12 @@ node tools/fileio-test.mjs \
                                          # export it as a browser download;
                                          # exits 1 unless the downloaded
                                          # bytes match the picked file
+node tools/update-test.mjs               # boot-time update check: banner
+                                         # appears when the served manifest
+                                         # changes after boot; dismissal
+                                         # sticks; the localStorage nocache
+                                         # marker (Developer options toggle)
+                                         # forces a full-network boot
 ```
 
 Fast iteration loop: edit → `buildWeb` (~1 min) → `boot-test.mjs`. TeaVM
@@ -226,7 +232,11 @@ other in both directions; separate sourceSets cannot express that):
   progress bar in index.html instead (driven by WebAssets prefetch counts —
   a 24-worker concurrent pool, one-at-a-time fetching measured ~2 files/s on
   GitHub Pages — with an IndexedDB asset cache so repeat visits hydrate
-  without network; hidden on first rendered frame, README §5 item 15). A
+  without network; hidden on first rendered frame, README §5 item 15; the
+  manifest carries a `# build` stamp and the page banners "newer build
+  available" when a no-cache refetch hashes differently — Settings ->
+  Developer options has a "Disable asset cache (web)" checkbox that
+  persists the bypass via localStorage, see tools/update-test.mjs). A
   language-only default locale crashes TeaVM's
   Currency lookup ("Currency not found: CYP") — Vars.java's replacement
   always gives the Java default locale a country (README §5 item 14).

@@ -239,10 +239,20 @@ tasks.register('extractAssets', Copy) {
 tasks.register('generateAssetManifest') {
     dependsOn 'assembleWeb', 'extractAssets'
     def webDir = layout.buildDirectory.dir('web')
+    // The whole web tree (minus this task's own output) is the input set, so
+    // the manifest -- and its build stamp -- regenerate whenever ANY shipped
+    // file changes, including the JS bundles the asset walk itself skips.
+    inputs.files(webDir.get().asFileTree.matching { exclude 'asset-manifest.txt' })
     outputs.file(webDir.map { it.file('asset-manifest.txt') })
     doLast {
         def out = new StringBuilder()
         def root = webDir.get().asFile
+        // Build stamp: first line, ignored by every manifest consumer. The
+        // page's update check hashes the manifest text, so any new build
+        // (even JS-only) is detectable by comparing against the deployed
+        // manifest; the asset cache keys off the same hash, so a new build
+        // invalidates cached assets too.
+        out.append('# build ').append(System.currentTimeMillis()).append('\n')
         root.eachFileRecurse { f ->
             if(f.isFile()){
                 def rel = root.toPath().relativize(f.toPath()).toString()
@@ -256,7 +266,16 @@ tasks.register('generateAssetManifest') {
             }
         }
         new File(root, 'asset-manifest.txt').text = out.toString()
-        println "asset manifest: ${out.count('\n')} entries"
+        // Web-build settings strings ride in the default bundle (the jar's
+        // bundle predates this backend's settings keys).
+        def bundle = new File(root, 'bundles/bundle.properties')
+        if(bundle.exists()){
+            def extra = '\n' +
+                'setting.webnocache.name = Disable asset cache (web)\n' +
+                'setting.webnocache.info = Skips the IndexedDB asset cache. Reload the page to apply.\n'
+            if(!bundle.text.contains('setting.webnocache.name')) bundle.append(extra, 'UTF-8')
+        }
+        println "asset manifest: ${out.count('\n') - 1} entries"
     }
 }
 
@@ -302,9 +321,11 @@ tasks.register('buildStandalone') {
 
         // embed set: every manifest entry plus all music (streamed in the
         // folder build, must ride along in the single file). Manifest lines
-        // are "path\tsize" (see generateAssetManifest) -- take the path half.
+        // are "path\tsize" (see generateAssetManifest) -- take the path half;
+        // '# ...' build-stamp lines are skipped.
         def paths = new ArrayList<String>()
         manifestFile.eachLine { line ->
+            if(line.startsWith('#')) return
             def p = line.contains('\t') ? line.split('\t')[0].trim() : line.trim()
             if(p) paths << p
         }

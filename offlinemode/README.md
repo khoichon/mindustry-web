@@ -719,6 +719,30 @@ session is everything since. Steps in order, with reasoning.)
       of this tests end-to-end without any Supabase project; Supabase
       mode itself still needs a live check against a real project.
 
+17. **Update checks and a Developer-options cache toggle (milestone 4).**
+    The asset manifest now opens with a `# build <millis>` stamp, and the
+    manifest task declares the whole web tree as its input -- so ANY new
+    build (JS-only deploys included) changes the manifest text, which is
+    what both the IndexedDB cache version and the update check hash.
+    Five seconds after the first rendered frame, the page refetches
+    `./asset-manifest.txt` with `cache: no-cache` and compares hashes:
+    on the GitHub Pages build that is the repo's latest deployed build;
+    on a self-hosted zip it is whatever the hoster now serves. A newer
+    hash shows a dismissible "A newer build is available -- Reload"
+    banner (dismissal sticks per browser session; file:// standalone
+    skips the check). Settings -> Developer options gains a "Disable
+    asset cache (web)" checkbox (appended to the dev table at
+    runtime -- SettingsMenuDialog exposes it publicly, no wholesale
+    copy needed); it writes a localStorage marker the page honors on
+    the next load, equivalent to the `?nocache` URL flag but persistent.
+    Its label strings are appended to the extracted default bundle by
+    the manifest task (the jar's bundle predates this backend). Covered
+    by `tools/update-test.mjs`: banner appears when the served manifest
+    changes after boot, dismissal sticks, and the localStorage marker
+    forces a full-network boot (699 requests). The checkbox was verified
+    visually (Developer Options, fifth row) and by clicking it end to
+    end.
+
 ## 6. Verification status
 
 - `:backend-teavm:buildWeb` — **green** end to end (javac + annotation

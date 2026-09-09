@@ -93,7 +93,11 @@ public final class WebAssets{
             String text = new String(data, arc.util.Strings.utf8);
             for(String line : text.split("\n")){
                 // Lines are "path\tsize" (see generateAssetManifest); accept
-                // bare paths too so hand-made manifests keep working.
+                // bare paths too so hand-made manifests keep working. A
+                // leading '# build ...' line is the build stamp -- it rides
+                // along in the hashed text (that is its purpose) but lists
+                // no file.
+                if(line.startsWith("#")) continue;
                 int tab = line.indexOf('\t');
                 String path = (tab >= 0 ? line.substring(0, tab) : line).trim();
                 if(!path.isEmpty()) manifest.add(path);
