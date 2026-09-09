@@ -23,6 +23,17 @@
                         background: #ffd37f; transition: width 120ms linear; }
         #ms-boot-label { font: 13px/1.4 -apple-system, 'Segoe UI', Roboto, sans-serif;
                          color: #b9b9c4; letter-spacing: 0.02em; }
+        /* Update-available banner (see msUpdateCheck below): a newer build is
+           deployed than the one this page booted with. */
+        #ms-update { position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+                     z-index: 40; display: flex; gap: 10px; align-items: center;
+                     background: #2a2313; border: 1px solid #6b5a2c; border-top: none;
+                     border-radius: 0 0 8px 8px; padding: 10px 16px;
+                     font: 13px/1.4 -apple-system, 'Segoe UI', Roboto, sans-serif;
+                     color: #ffd37f; }
+        #ms-update button { background: #3a3320; color: #ffd37f; border: 1px solid #6b5a2c;
+                            border-radius: 4px; padding: 5px 12px; cursor: pointer;
+                            font: 12px/1.2 -apple-system, 'Segoe UI', Roboto, sans-serif; }
     </style>
 </head>
 <body>
@@ -60,20 +71,55 @@
         window.__msBootDone = function () {
             var root = document.getElementById('ms-boot');
             if (root) root.remove();
+            // once booted, check whether a newer build is deployed (GitHub
+            // Pages build: the repo's latest; a self-hosted zip: whatever the
+            // hoster now serves). No-cache refetch of the manifest, hash
+            // compared against what this page booted with.
+            setTimeout(msUpdateCheck, 5000);
         };
+        function msUpdateCheck() {
+            if (location.protocol === 'file:' || !window.__msCacheVersion) return;
+            try {
+                fetch('./asset-manifest.txt', { cache: 'no-cache' }).then(function (r) {
+                    return r.ok ? r.text() : null;
+                }).then(function (txt) {
+                    if (txt == null) return;
+                    if (msCacheHash(txt) !== window.__msCacheVersion) msShowUpdateBanner();
+                }).catch(function () {});
+            } catch (e) {}
+        }
+        window.__msUpdateCheck = msUpdateCheck; // exposed for tests
+        function msShowUpdateBanner() {
+            try { if (sessionStorage.getItem('mindustryweb.updateDismissed') === '1') return; } catch (e) {}
+            if (document.getElementById('ms-update')) return;
+            var b = document.createElement('div');
+            b.id = 'ms-update';
+            b.innerHTML = 'A newer build of the game is available.' +
+                '<button id="ms-update-reload">Reload</button>' +
+                '<button id="ms-update-dismiss">Dismiss</button>';
+            document.body.appendChild(b);
+            document.getElementById('ms-update-reload').onclick = function () { location.reload(); };
+            document.getElementById('ms-update-dismiss').onclick = function () {
+                try { sessionStorage.setItem('mindustryweb.updateDismissed', '1'); } catch (e) {}
+                b.remove();
+            };
+        }
     </script>
     <script>
         // Asset cache: IndexedDB, deliberately NOT a service worker. Repeat
         // visits hydrate the prefetch from here instead of re-downloading
         // ~60MB (GitHub Pages sends max-age=600, so the HTTP cache expires in
         // ten minutes). Keyed by a hash of the manifest text -- which carries
-        // file sizes, so any asset change invalidates the whole cache. Music
-        // never rides along (it streams on demand). Everything degrades to a
-        // plain network fetch when IndexedDB is unavailable (private mode).
-        // Append ?nocache to the page URL to bypass the cache for that visit
-        // (fresh network boot, full progress bar; the stored cache is left
-        // untouched).
-        var msCacheDisabled = /[?&]nocache(=|&|$)/.test(location.search);
+        // file sizes AND a build stamp, so any asset or code change
+        // invalidates the whole cache. Music never rides along (it streams on
+        // demand). Everything degrades to a plain network fetch when
+        // IndexedDB is unavailable (private mode).
+        // Bypass: append ?nocache to the URL for one visit, or flip Settings
+        // -> Developer options -> "Disable asset cache" (stored in
+        // localStorage by the game, applied from the next reload).
+        var msCacheDisabled = /[?&]nocache(=|&|$)/.test(location.search)
+            || localStorage.getItem('mindustryweb.nocache') === '1';
+        window.__msCacheVersion = '';
         window.__msAssetCacheDb = null;
         function msCacheOpen() {
             if (window.__msAssetCacheDb) return Promise.resolve(window.__msAssetCacheDb);
@@ -112,8 +158,9 @@
             }
         }
         window.__msCacheInit = function (manifestText, done) {
+            window.__msCacheVersion = msCacheHash(manifestText); // update check compares this
             if (msCacheDisabled) { done(); return; }
-            var v = msCacheHash(manifestText);
+            var v = window.__msCacheVersion;
             msCacheOpen().then(function (db) {
                 if (!db) { done(); return; }
                 // Best-effort durability hint; ignore refusals.

@@ -259,6 +259,16 @@ public abstract class ClientLauncher extends ApplicationCore implements Platform
                 clientLoaded = true;
                 // Web invite links (?join=CODE) auto-join once the menu exists.
                 try{ mindustry.net.WebRtcNetProvider.autoJoinIfPending(); }catch(Throwable t){ arc.util.Log.err("auto-join failed", t); }
+                // Web-only Developer option: bypass the IndexedDB asset cache
+                // (zip/self-hosted builds). The checkbox lives in Settings ->
+                // Developer options next to the desktop debug toggles; the
+                // page reads the localStorage marker at load, so a reload
+                // applies it.
+                try{
+                    var devTable = ((mindustry.ui.dialogs.SettingsMenuDialog)ui.settings).dev;
+                    devTable.checkPref("webnocache", false, val -> jsLocalStore("mindustryweb.nocache", val ? "1" : "0"));
+                    jsLocalStore("mindustryweb.nocache", Core.settings.getBool("webnocache", false) ? "1" : "0");
+                }catch(Throwable t){ arc.util.Log.err("webnocache settings hook failed", t); }
                 super.resize(graphics.getWidth(), graphics.getHeight());
                 app.post(() -> app.post(() -> app.post(() -> app.post(() -> {
                     super.resize(graphics.getWidth(), graphics.getHeight());
@@ -380,4 +390,7 @@ public abstract class ClientLauncher extends ApplicationCore implements Platform
             }
         });
     }
+
+    @org.teavm.jso.JSBody(params = {"key", "value"}, script = "try{localStorage.setItem(key, value);}catch(e){}")
+    static native void jsLocalStore(String key, String value);
 }
