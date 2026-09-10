@@ -169,7 +169,9 @@ public class TeavmApplication implements Application {
         long now = System.currentTimeMillis();
         if(phase.equals(lastPhase) && now - lastPhaseErrorTime < 1000) return;
         lastPhase = phase; lastPhaseErrorTime = now;
-        bootError("[" + phase + "] " + String.valueOf(t));
+        // TEMP(diagnosis): include the full stack -- JS-origin TypeErrors
+        // otherwise surface as a one-line message with no location.
+        bootError("[" + phase + "] " + String.valueOf(t) + "\n" + arc.util.Strings.getStackTrace(t));
     }
 
     /**

@@ -222,6 +222,13 @@ other in both directions; separate sourceSets cannot express that):
   always swaps in the mock relay for tests). Gotchas: packet ids ≥128
   read as negative bytes — only 0xFE/-2 is the framework marker;
   zero-length packets are valid (connectConfirm!) — don't drop them;
+  SaveSlot.meta can be null (async re-read) — its accessors are null-safe
+  in the Saves replacement, keep them that way; a Timer-thread task that
+  throws now LOGS before TeaVM kills the coroutine silently (a stuck
+  "loading" screen was one unlogged throw away from being undiagnosable);
+  when instrumenting staged sources, grep the BUILT bundle for the marker
+  string first — stale incremental compiles have shipped diagnostics that
+  never ran (twice);
   realtime needs `vsn=1.0.0` (vsn=1 → HTTP 403) and
   `presence.enabled=true` in phx_join; two game pages in ONE headless
   browser freeze the occluded page's RAF (use two browser instances, as
