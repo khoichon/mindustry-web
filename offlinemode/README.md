@@ -743,6 +743,35 @@ session is everything since. Steps in order, with reasoning.)
     visually (Developer Options, fifth row) and by clicking it end to
     end.
 
+18. **Two user-reported failures, one real bug and one ghost (milestone 4).**
+    Report 1: "opening a custom/big map leaves the loading screen forever".
+    Traced with a TEMP per-frame state dump (ClientLauncher) + TEMP save-path
+    logging (Saves) + a CDP CPU profile on the readable `-PdebugJs` build:
+    a 600x600 attack-mode map (build 146, save version 7) imports fine,
+    generates its preview, and fully loads in ~3 s -- then the game REJECTS
+    it in the default/survival mode ("no cores for the player to spawn in")
+    with a small error dialog over the huge map-preview backdrop, which
+    reads exactly like an eternal loading screen. In the mode the play
+    dialog preselects for such maps (PvP here) it runs perfectly (world +
+    HUD + gameplay verified). Not a web bug; the map itself decides valid
+    modes via its rules/cores. Report 2: Play -> Load Game crashed with a
+    JS TypeError on a minified field (`dZV` = SaveMeta.timestamp): real bug
+    -- save-slot metadata is re-read asynchronously after import/save, and
+    a slot whose read failed has `meta == null`; the Load Game dialog's
+    sort calls `slot.getTimestamp()` unconditionally and bricked the
+    dialog. Fixed in the Saves replacement: every SaveSlot accessor is
+    null-meta-safe now (matching the null-check `getSector()` already
+    had), so such slots render with defaults instead of crashing.
+    Diagnostics kept permanently: arc's Timer thread logs a dying task
+    before TeaVM silently kills that coroutine (an unlogged throw there
+    is precisely what a stuck loading screen used to be able to hide),
+    and `bootErrorOnce` includes full stack traces -- JS-origin TypeErrors
+    otherwise surface as one-line messages with no location. Also: the
+    stale-incremental-compile trap bit twice this session (source edits
+    silently absent from the bundle; a hidden compile error was the root
+    once) -- when instrumenting, grep the BUILT bundle for the marker
+    string before believing a negative result.
+
 ## 6. Verification status
 
 - `:backend-teavm:buildWeb` — **green** end to end (javac + annotation

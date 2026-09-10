@@ -383,19 +383,24 @@ public class Saves{
         }
 
         public String getPlayTime(){
-            return Strings.formatMillis(current == this ? totalPlaytime : meta.timePlayed);
+            // Web: slot metadata is read back asynchronously after import/save,
+            // and a failed read leaves meta null -- the Load Game dialog then
+            // crashed its sort on getTimestamp(). Null-meta slots now render
+            // with defaults instead of bricking the dialog (matches the
+            // null-check getSector() already had).
+            return Strings.formatMillis(current == this ? totalPlaytime : (meta == null ? 0 : meta.timePlayed));
         }
 
         public long getTimestamp(){
-            return meta.timestamp;
+            return meta == null ? 0 : meta.timestamp;
         }
 
         public String getDate(){
-            return dateFormat.format(new Date(meta.timestamp));
+            return meta == null ? "Unknown" : dateFormat.format(new Date(meta.timestamp));
         }
 
         public Map getMap(){
-            return meta.map;
+            return meta == null ? null : meta.map;
         }
 
         public void cautiousLoad(Runnable run){
@@ -418,7 +423,7 @@ public class Saves{
         }
 
         public String[] getMods(){
-            return meta.mods;
+            return meta == null ? new String[0] : meta.mods;
         }
 
         public @Nullable Sector getSector(){
@@ -431,15 +436,15 @@ public class Saves{
         }
 
         public Gamemode mode(){
-            return meta.rules.mode();
+            return meta == null || meta.rules == null ? Gamemode.survival : meta.rules.mode();
         }
 
         public int getBuild(){
-            return meta.build;
+            return meta == null ? -1 : meta.build;
         }
 
         public int getWave(){
-            return meta.wave;
+            return meta == null ? -1 : meta.wave;
         }
 
         public boolean isAutosave(){
@@ -455,7 +460,7 @@ public class Saves{
         }
 
         public boolean hasExternalAssets(){
-            return meta.tags.getBool("hasExternalAssets");
+            return meta != null && meta.tags != null && meta.tags.containsKey("hasExternalAssets") && meta.tags.getBool("hasExternalAssets");
         }
 
         public void importFile(Fi from) throws IOException{
