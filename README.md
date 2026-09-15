@@ -221,3 +221,29 @@ This project is not affiliated with or endorsed by the original Mindustry develo
 > The browser build is functional, while the standalone offline build is still being developed.
 >
 > If you do notice any issues, do report them in the [Issues tab](https://github.com/khoichon/mindustry-web/issues/new). 
+
+
+
+### Miscellaneous stuff
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=khoichon%2Fmindustry-web&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=khoichon/mindustry-web&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=khoichon/mindustry-web&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=khoichon/mindustry-web&type=date&legend=top-left" />
+ </picture>
+</a>
+
+![GitHub commit activity](https://img.shields.io/github/commit-activity/t/khoichon/mindustry-web)
+
+![GitHub commits since latest release](https://img.shields.io/github/commits-since/khoichon/mindustry-web/latest)
+
+![GitHub last commit](https://img.shields.io/github/last-commit/khoichon/mindustry-web)
+
+![GitHub Release Date](https://img.shields.io/github/release-date/khoichon/mindustry-web)
+
+![GitHub language count](https://img.shields.io/github/languages/count/khoichon/mindustry-web)
+
+![GitHub Downloads (specific asset, latest release)](https://img.shields.io/github/downloads/khoichon/mindustry-web/latest/mindustry-offline.html)
