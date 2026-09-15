@@ -123,10 +123,8 @@
 
   /* ---- cards ---- */
   .paths{
-    display:grid; grid-template-columns: 1fr 1fr; gap: 22px;
     margin-top: -2px;
   }
-  @media (max-width: 760px){ .paths{ grid-template-columns: 1fr; } }
 
   .card{
     background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
@@ -205,6 +203,57 @@
   .cta-stack{ margin-top: auto; display:flex; flex-direction:column; gap: 10px; }
   .cta-stack .cta{ margin-top: 0; }
 
+  /* ---- primary offline feature (the main attraction) ---- */
+  .card.feature{
+    padding: 44px 46px 40px;
+  }
+  .card.feature h2{ font-size: 34px; }
+  .card.feature .card-runtime{ font-size: 13.5px; }
+  .card.feature p.desc{ font-size: 15.5px; max-width: 68ch; }
+  .card.feature .chip-row{ margin-bottom: 30px; }
+  .card.feature .cta-stack{ flex-direction: row; flex-wrap: wrap; }
+  .card.feature .cta-stack .cta{ flex: 0 0 auto; }
+  .card.feature .cta.primary{ padding: 16px 26px; font-size: 16px; }
+
+  /* ---- secondary online note ---- */
+  .alt-note{
+    margin-top: 20px;
+    padding: 14px 18px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    font-size: 13.5px;
+    color: var(--text-faint);
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .alt-note a{ color: var(--copper); text-decoration:none; border-bottom:1px solid var(--copper-dim); }
+  .alt-note a:hover{ color: var(--text); }
+
+  /* ---- legacy / deprecated callout ---- */
+  .legacy{ margin-top: 40px; }
+  .legacy-box{
+    background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
+    border: 1px solid var(--line);
+    border-top: 2px solid var(--text-faint);
+    border-radius: var(--radius);
+    padding: 26px 28px;
+    display:flex; align-items:flex-start; justify-content:space-between; gap: 24px; flex-wrap:wrap;
+  }
+  .legacy-copy{ flex: 1 1 380px; }
+  .legacy-label{
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-faint);
+    display:flex; align-items:center; gap:8px;
+    margin-bottom: 12px;
+  }
+  .legacy-label .dot{ width:6px; height:6px; background: var(--text-faint); border-radius:50%; }
+  .legacy-box h3{
+    font-family:'Chakra Petch'; font-weight:600; font-size: 18px; margin-bottom: 10px;
+  }
+  .legacy-box p{ font-size: 14px; color: var(--text-dim); }
+  .legacy-box ul{ margin: 12px 0 0 18px; font-size: 13.5px; color: var(--text-dim); }
+  .legacy-box li{ margin-bottom: 4px; }
+  .legacy-box .cta{ flex: 0 0 auto; align-self:center; }
+
   /* ---- how it works table ---- */
   .compare{ margin-top: 84px; }
   .section-title{
@@ -254,77 +303,44 @@
   </nav>
 
   <section class="hero">
-    <div class="eyebrow mono">play it your way</div>
-    <h1>Mindustry, compiled<br>for the <span class="accent">browser</span> and for <span class="accent2">offline</span> play.</h1>
+    <div class="eyebrow mono">download & play offline</div>
+    <h1>Mindustry, compiled into <span class="accent2">one offline file</span> you can keep.</h1>
     <p class="hero-sub">
-      This project ships the same factory-defense sandbox two ways: one that <strong>runs the actual
-      game directly in your browser</strong> using a patched JVM, and one that <strong>compiles a
-      standalone build</strong> you can save and run without a connection. Pick a lane below.
+      This build forks <code>Arc</code>, the engine Mindustry runs on, retargets its rendering, audio,
+      and I/O to the web, then compiles the whole game from Java to JavaScript with TeaVM. What comes
+      out is <strong>a single self-contained <code>.html</code> file</strong> — download it once and it
+      runs forever, no server, JVM, or connection required.
     </p>
 
-    <!-- signature schematic: source splitting into two runtime paths -->
+    <!-- signature schematic: straight-line offline pipeline -->
     <div class="schematic">
-      <svg viewBox="0 0 1000 170" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 1000 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
         <!-- source node -->
-        <rect x="420" y="8" width="160" height="34" fill="none" stroke="#3A424D" stroke-width="1"/>
-        <text x="500" y="29" text-anchor="middle" font-family="JetBrains Mono" font-size="11" fill="#9AA4B2">MINDUSTRY SOURCE</text>
+        <rect x="20" y="40" width="190" height="40" fill="#171B21" stroke="#3A424D" stroke-width="1"/>
+        <text x="115" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#9AA4B2" letter-spacing="1">MINDUSTRY + ARC</text>
+        <text x="115" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">forked, web-targeted</text>
 
-        <!-- trunk down -->
-        <line x1="500" y1="42" x2="500" y2="66" stroke="#3A424D" stroke-width="1"/>
+        <path d="M 210 60 H 335" stroke="#2E9C90" stroke-width="1.5" class="flow-dash"/>
 
-        <!-- split junction -->
-        <path d="M 190 66 H 810" stroke="#3A424D" stroke-width="1"/>
-        <circle cx="500" cy="66" r="2.5" fill="#5C6572"/>
+        <!-- teavm node -->
+        <rect x="335" y="40" width="190" height="40" fill="#171B21" stroke="#2E9C90" stroke-width="1.2"/>
+        <text x="430" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#48D3C4" letter-spacing="1">TEAVM</text>
+        <text x="430" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">Java → JS, ahead-of-time</text>
 
-        <!-- left branch (online / copper) -->
-        <path d="M 190 66 V 100" stroke="#B87F2B" stroke-width="1.5" class="flow-dash"/>
-        <line x1="190" y1="66" x2="190" y2="66" />
-        <path d="M 190 66 V 100" stroke="#B87F2B" stroke-width="1.5" fill="none"/>
+        <path d="M 525 60 H 650" stroke="#2E9C90" stroke-width="1.5" class="flow-dash slow"/>
 
-        <!-- right branch (offline / teal) -->
-        <path d="M 810 66 V 100" stroke="#2E9C90" stroke-width="1.5" class="flow-dash slow"/>
-
-        <!-- horizontal connector segments to node centers -->
-        <path d="M 500 42 L 500 66" stroke="#3A424D" stroke-width="1"/>
-
-        <!-- online node -->
-        <rect x="90" y="100" width="200" height="40" fill="#171B21" stroke="#B87F2B" stroke-width="1.2"/>
-        <text x="190" y="118" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#E8A33D" letter-spacing="1">ONLINE — CHEERPJ</text>
-        <text x="190" y="132" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">patched bytecode, runs in-browser</text>
-
-        <!-- offline node -->
-        <rect x="710" y="100" width="200" height="40" fill="#171B21" stroke="#2E9C90" stroke-width="1.2"/>
-        <text x="810" y="118" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#48D3C4" letter-spacing="1">OFFLINE — TEAVM</text>
-        <text x="810" y="132" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">modified Arc, one .html file</text>
+        <!-- output node -->
+        <rect x="650" y="40" width="330" height="40" fill="#171B21" stroke="#48D3C4" stroke-width="1.5"/>
+        <text x="815" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#E9ECEF" letter-spacing="1">ONE .HTML FILE</text>
+        <text x="815" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">download once, run forever, offline</text>
       </svg>
     </div>
 
     <div class="paths">
 
-      <!-- ONLINE CARD -->
-      <div class="card online">
-        <div class="card-label mono"><span class="dot"></span>PATH 01 — PLAY NOW</div>
-        <h2>Play in your browser</h2>
-        <div class="card-runtime mono">RUNTIME: <b>CheerpJ</b></div>
-        <p class="desc">
-          This build runs the real Mindustry <code>.jar</code> — not a rewrite. CheerpJ compiles a
-          JVM to WebAssembly and executes the game's original bytecode directly in the tab. Because the
-          desktop game expects a desktop windowing and input stack, the bytecode is patched post-compile:
-          LWJGL display, input, and file-access calls are rerouted to browser-side equivalents (canvas,
-          pointer/keyboard events, virtual storage) so the class files behave correctly without touching
-          the original Java source.
-        </p>
-        <div class="chip-row">
-          <span class="chip">no install</span>
-          <span class="chip">bytecode-patched, not source-modified</span>
-          <span class="chip">requires connection</span>
-        </div>
-        <a href="./onlinemode/" class="cta primary">Launch the game →</a>
-      </div>
-
-      <!-- OFFLINE CARD -->
-      <div class="card offline">
-        <div class="card-label mono"><span class="dot"></span>PATH 02 — DOWNLOAD</div>
+      <!-- OFFLINE CARD — the main attraction -->
+      <div class="card offline feature">
+        <div class="card-label mono"><span class="dot"></span>DOWNLOAD & PLAY OFFLINE</div>
         <h2>Take it offline</h2>
         <div class="card-runtime mono">RUNTIME: <b>TeaVM</b></div>
         <p class="desc">
@@ -346,6 +362,32 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- secondary mention: play in browser instead -->
+    <p class="alt-note mono">
+      Want to jump in without downloading anything? <a href="./onlinemode/">Play in the browser now</a>
+      — a CheerpJ build of the real .jar, but it needs a live connection the whole time.
+    </p>
+  </section>
+
+  <!-- legacy / deprecated offline build -->
+  <section class="legacy">
+    <div class="legacy-box">
+      <div class="legacy-copy">
+        <div class="legacy-label mono"><span class="dot"></span>LEGACY BUILD — DEPRECATED</div>
+        <h3>Still on the old offline build?</h3>
+        <p>
+          The current TeaVM build above replaces an earlier offline version. That old build is still
+          up and untouched — no need to move off it if you'd rather not. Stick with it if:
+        </p>
+        <ul>
+          <li>You already have saves stored there and don't want to lose them</li>
+          <li>You just prefer how the previous version plays</li>
+          <li>You rely on mods — the legacy build supports more of them than the current one does</li>
+        </ul>
+      </div>
+      <a href="./onlinemode/" class="cta secondary">Go to legacy build →</a>
     </div>
   </section>
 
