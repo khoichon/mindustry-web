@@ -222,7 +222,7 @@ This project is not affiliated with or endorsed by the original Mindustry develo
 >
 > If you do notice any issues, do report them in the [Issues tab](https://github.com/khoichon/mindustry-web/issues/new). 
 
-
+*AI Disclosure: I had used AI to make the main page, and some of the shims for the online mode, and some parts of the offline mode (especially the repetitive parts), I hope you don't mind!*
 
 ### Miscellaneous stuff
 
