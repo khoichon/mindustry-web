@@ -1,447 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mindustry — Web Build</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --bg: #0F1216;
-    --bg-panel: #171B21;
-    --bg-panel-2: #1D232B;
-    --line: #2A313B;
-    --line-soft: #20262E;
-    --copper: #E8A33D;
-    --copper-dim: #B87F2B;
-    --teal: #48D3C4;
-    --teal-dim: #2E9C90;
-    --text: #E9ECEF;
-    --text-dim: #9AA4B2;
-    --text-faint: #5C6572;
-    --radius: 3px;
-  }
+<html>
+  <head>
+    <title>Mindustry Web Build</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A web port of the game Mindustry, with as many features as possible.">
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+      }
 
-  *{ margin:0; padding:0; box-sizing:border-box; }
+      body {
+        position: relative; 
+        overflow-x: hidden; 
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1; 
+        background: url('background.png') center / cover no-repeat;
+        filter: blur(8px);
+        transform: scale(1.1); 
+      }
 
-  html{ scroll-behavior:smooth; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/gh/khoichon/cardpopup/popup.js"></script>
+  </head>
+  <body>
+    <script>
+      openCard(`
+        <div style="padding: 24px 32px; border-radius: 16px; background: white; box-shadow: 0 20px 50px rgba(0,0,0,.25);">
+          <p>As you can tell, the main page disappeared.</p>
+          <p>We are working on revamping the main page so that it no longer looks like AI slop.</p>
+          <p style="color: gray">(Because the new version is written by an actual human.)</p>
+          <p>Meanwhile, here are all the links to the files:</p>
+          <p>Offline (latest) mode:</p>
+          <ul>
+            <li><a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.html" download class="cta primary">Download HTML</a></li>
+            <li><a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.zip" download class="cta secondary">Download .zip file (for web hosting)</a></li>
+            <li><a href="./offlinemode/build/" class="cta secondary">View offline build directly (bleeding-edge builds)</a></li>
+          </ul>
+          <br>
+          <a href="./onlinemode/">Legacy (CheerpJ + shims) build</a>
 
-  body{
-    background:
-      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(232,163,61,0.08), transparent 60%),
-      radial-gradient(ellipse 900px 500px at 90% 10%, rgba(72,211,196,0.06), transparent 60%),
-      var(--bg);
-    background-attachment: fixed;
-    color: var(--text);
-    font-family: 'Inter', sans-serif;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  /* blueprint grid overlay */
-  .grid-overlay{
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 42px 42px;
-    mask-image: linear-gradient(to bottom, black, transparent 85%);
-  }
-
-  .wrap{ position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 0 28px; }
-
-  .mono{ font-family: 'JetBrains Mono', monospace; }
-
-  /* ---- nav ---- */
-  nav{
-    display:flex; align-items:center; justify-content:space-between;
-    padding: 26px 0;
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .brand{ display:flex; align-items:center; gap: 10px; }
-  .brand-mark{
-    width: 28px; height: 28px;
-    border: 1.5px solid var(--copper);
-    display:flex; align-items:center; justify-content:center;
-    font-family:'Chakra Petch'; font-weight:700; font-size: 13px; color: var(--copper);
-    transform: rotate(45deg);
-  }
-  .brand-mark span{ transform: rotate(-45deg); }
-  .brand-name{ font-family:'Chakra Petch'; font-weight:600; letter-spacing:0.04em; font-size:15px; }
-  .nav-tag{
-    font-size: 11px; color: var(--text-faint); letter-spacing: 0.12em; text-transform: uppercase;
-  }
-
-  /* ---- hero ---- */
-  .hero{ padding: 88px 0 64px; }
-  .eyebrow{
-    font-size: 12px; color: var(--copper); letter-spacing: 0.14em; text-transform: uppercase;
-    margin-bottom: 22px; display:flex; align-items:center; gap:10px;
-  }
-  .eyebrow::before{ content:''; width:22px; height:1px; background: var(--copper-dim); }
-
-  h1{
-    font-family: 'Chakra Petch', sans-serif;
-    font-weight: 700;
-    font-size: clamp(38px, 6vw, 66px);
-    line-height: 1.04;
-    letter-spacing: -0.01em;
-    max-width: 15ch;
-  }
-  h1 .accent{ color: var(--copper); }
-  h1 .accent2{ color: var(--teal); }
-
-  .hero-sub{
-    margin-top: 26px;
-    max-width: 56ch;
-    color: var(--text-dim);
-    font-size: 16px;
-  }
-  .hero-sub strong{ color: var(--text); font-weight: 500; }
-
-  /* ---- schematic diagram ---- */
-  .schematic{
-    margin-top: 64px;
-    padding-top: 4px;
-  }
-  .schematic svg{ width: 100%; height: auto; display:block; }
-  .flow-dash{
-    stroke-dasharray: 6 8;
-    animation: flow 1.4s linear infinite;
-  }
-  .flow-dash.slow{ animation-duration: 1.9s; }
-  @keyframes flow{ to{ stroke-dashoffset: -28; } }
-
-  @media (prefers-reduced-motion: reduce){
-    .flow-dash{ animation: none; }
-  }
-
-  /* ---- cards ---- */
-  .paths{
-    margin-top: -2px;
-  }
-
-  .card{
-    background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
-    border: 1px solid var(--line);
-    border-top: 2px solid var(--card-accent, var(--copper));
-    border-radius: var(--radius);
-    padding: 30px 28px 28px;
-    display:flex; flex-direction:column;
-    position: relative;
-    overflow:hidden;
-  }
-  .card::after{
-    content:'';
-    position:absolute; top:0; right:0; width:70px; height:70px;
-    background: radial-gradient(circle at top right, color-mix(in srgb, var(--card-accent, var(--copper)) 18%, transparent), transparent 70%);
-    pointer-events:none;
-  }
-  .card.online{ --card-accent: var(--copper); }
-  .card.offline{ --card-accent: var(--teal); }
-
-  .card-label{
-    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--card-accent);
-    display:flex; align-items:center; gap:8px;
-    margin-bottom: 14px;
-  }
-  .card-label .dot{ width:6px; height:6px; background: var(--card-accent); border-radius:50%; }
-
-  .card h2{
-    font-family:'Chakra Petch'; font-weight:600; font-size: 24px; letter-spacing: -0.01em;
-    margin-bottom: 6px;
-  }
-  .card-runtime{
-    font-size: 12.5px; color: var(--text-faint); margin-bottom: 18px;
-  }
-  .card-runtime b{ color: var(--text-dim); font-weight:500; }
-
-  .card p.desc{
-    font-size: 14.5px; color: var(--text-dim); margin-bottom: 20px;
-  }
-  .card p.desc code{
-    font-family:'JetBrains Mono'; font-size: 0.92em; color: var(--text);
-    background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 2px;
-  }
-
-  .chip-row{ display:flex; flex-wrap:wrap; gap: 8px; margin-bottom: 26px; }
-  .chip{
-    font-family:'JetBrains Mono'; font-size: 11px; color: var(--text-dim);
-    border: 1px solid var(--line); padding: 5px 9px; border-radius: 2px;
-    background: rgba(255,255,255,0.02);
-  }
-
-  .cta{
-    margin-top: auto;
-    display:inline-flex; align-items:center; justify-content:center; gap: 8px;
-    padding: 13px 20px;
-    font-family:'Chakra Petch'; font-weight: 600; font-size: 14.5px; letter-spacing: 0.02em;
-    text-decoration:none;
-    border-radius: 2px;
-    transition: transform 0.15s ease, filter 0.15s ease;
-  }
-  .cta.primary{ background: var(--card-accent); color: #14171B; }
-  .cta.primary:hover{ filter: brightness(1.1); transform: translateY(-1px); }
-  .cta:active{ transform: translateY(0); }
-
-  .cta.secondary{
-    background: transparent;
-    color: var(--card-accent);
-    border: 1px solid var(--line);
-  }
-  .cta.secondary:hover{
-    border-color: var(--card-accent);
-    background: color-mix(in srgb, var(--card-accent) 10%, transparent);
-  }
-
-  .cta-stack{ margin-top: auto; display:flex; flex-direction:column; gap: 10px; }
-  .cta-stack .cta{ margin-top: 0; }
-
-  /* ---- primary offline feature (the main attraction) ---- */
-  .card.feature{
-    padding: 44px 46px 40px;
-  }
-  .card.feature h2{ font-size: 34px; }
-  .card.feature .card-runtime{ font-size: 13.5px; }
-  .card.feature p.desc{ font-size: 15.5px; max-width: 68ch; }
-  .card.feature .chip-row{ margin-bottom: 30px; }
-  .card.feature .cta-stack{ flex-direction: row; flex-wrap: wrap; }
-  .card.feature .cta-stack .cta{ flex: 0 0 auto; }
-  .card.feature .cta.primary{ padding: 16px 26px; font-size: 16px; }
-
-  /* ---- secondary online note ---- */
-  .alt-note{
-    margin-top: 20px;
-    padding: 14px 18px;
-    border: 1px dashed var(--line);
-    border-radius: var(--radius);
-    font-size: 13.5px;
-    color: var(--text-faint);
-    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-  }
-  .alt-note a{ color: var(--copper); text-decoration:none; border-bottom:1px solid var(--copper-dim); }
-  .alt-note a:hover{ color: var(--text); }
-
-  /* ---- legacy / deprecated callout ---- */
-  .legacy{ margin-top: 40px; }
-  .legacy-box{
-    background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2));
-    border: 1px solid var(--line);
-    border-top: 2px solid var(--text-faint);
-    border-radius: var(--radius);
-    padding: 26px 28px;
-    display:flex; align-items:flex-start; justify-content:space-between; gap: 24px; flex-wrap:wrap;
-  }
-  .legacy-copy{ flex: 1 1 380px; }
-  .legacy-label{
-    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--text-faint);
-    display:flex; align-items:center; gap:8px;
-    margin-bottom: 12px;
-  }
-  .legacy-label .dot{ width:6px; height:6px; background: var(--text-faint); border-radius:50%; }
-  .legacy-box h3{
-    font-family:'Chakra Petch'; font-weight:600; font-size: 18px; margin-bottom: 10px;
-  }
-  .legacy-box p{ font-size: 14px; color: var(--text-dim); }
-  .legacy-box ul{ margin: 12px 0 0 18px; font-size: 13.5px; color: var(--text-dim); }
-  .legacy-box li{ margin-bottom: 4px; }
-  .legacy-box .cta{ flex: 0 0 auto; align-self:center; }
-
-  /* ---- how it works table ---- */
-  .compare{ margin-top: 84px; }
-  .section-title{
-    font-family:'Chakra Petch'; font-weight:600; font-size: 20px; margin-bottom: 6px;
-  }
-  .section-sub{ color: var(--text-faint); font-size: 13.5px; margin-bottom: 28px; }
-
-  table{ width:100%; border-collapse: collapse; font-size: 13.5px; }
-  thead th{
-    text-align:left; font-family:'JetBrains Mono'; font-weight:500; font-size: 11px;
-    color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
-    padding: 10px 14px; border-bottom: 1px solid var(--line);
-  }
-  thead th:not(:first-child){ color: var(--card-accent); }
-  thead th.online{ color: var(--copper); }
-  thead th.offline{ color: var(--teal); }
-  tbody td{
-    padding: 14px 14px; border-bottom: 1px solid var(--line-soft);
-    color: var(--text-dim); vertical-align: top;
-  }
-  tbody td:first-child{ color: var(--text); font-weight:500; white-space:nowrap; }
-  tbody tr:last-child td{ border-bottom:none; }
-
-  /* ---- footer ---- */
-  footer{
-    margin-top: 90px; padding: 30px 0 60px;
-    border-top: 1px solid var(--line-soft);
-    display:flex; flex-wrap:wrap; gap: 14px 30px; justify-content:space-between; align-items:baseline;
-  }
-  footer p{ font-size: 12.5px; color: var(--text-faint); max-width: 60ch; }
-  footer a{ color: var(--text-dim); }
-  footer a:hover{ color: var(--copper); }
-</style>
-</head>
-<body>
-
-<div class="grid-overlay"></div>
-
-<div class="wrap">
-
-  <nav>
-    <div class="brand">
-      <div class="brand-mark"><span>M</span></div>
-      <div class="brand-name">MINDUSTRY // WEB</div>
-    </div>
-    <div class="nav-tag mono">unofficial browser build</div>
-  </nav>
-
-  <section class="hero">
-    <div class="eyebrow mono">download & play offline</div>
-    <h1>Mindustry, compiled into <span class="accent2">one offline file</span> you can keep.</h1>
-    <p class="hero-sub">
-      This build forks <code>Arc</code>, the engine Mindustry runs on, retargets its rendering, audio,
-      and I/O to the web, then compiles the whole game from Java to JavaScript with TeaVM. What comes
-      out is <strong>a single self-contained <code>.html</code> file</strong> — download it once and it
-      runs forever, no server, JVM, or connection required.
-    </p>
-
-    <!-- signature schematic: straight-line offline pipeline -->
-    <div class="schematic">
-      <svg viewBox="0 0 1000 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <!-- source node -->
-        <rect x="20" y="40" width="190" height="40" fill="#171B21" stroke="#3A424D" stroke-width="1"/>
-        <text x="115" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#9AA4B2" letter-spacing="1">MINDUSTRY + ARC</text>
-        <text x="115" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">forked, web-targeted</text>
-
-        <path d="M 210 60 H 335" stroke="#2E9C90" stroke-width="1.5" class="flow-dash"/>
-
-        <!-- teavm node -->
-        <rect x="335" y="40" width="190" height="40" fill="#171B21" stroke="#2E9C90" stroke-width="1.2"/>
-        <text x="430" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#48D3C4" letter-spacing="1">TEAVM</text>
-        <text x="430" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">Java → JS, ahead-of-time</text>
-
-        <path d="M 525 60 H 650" stroke="#2E9C90" stroke-width="1.5" class="flow-dash slow"/>
-
-        <!-- output node -->
-        <rect x="650" y="40" width="330" height="40" fill="#171B21" stroke="#48D3C4" stroke-width="1.5"/>
-        <text x="815" y="58" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#E9ECEF" letter-spacing="1">ONE .HTML FILE</text>
-        <text x="815" y="72" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6B7480">download once, run forever, offline</text>
-      </svg>
-    </div>
-
-    <div class="paths">
-
-      <!-- OFFLINE CARD — the main attraction -->
-      <div class="card offline feature">
-        <div class="card-label mono"><span class="dot"></span>DOWNLOAD & PLAY OFFLINE</div>
-        <h2>Take it offline</h2>
-        <div class="card-runtime mono">RUNTIME: <b>TeaVM</b></div>
-        <p class="desc">
-          This build starts further upstream. <code>Arc</code>, the engine Mindustry itself is built on,
-          is forked and modified so its rendering, audio, and I/O layers target the web instead of desktop
-          backends. That modified engine — plus the game code — is then ahead-of-time compiled from Java to
-          JavaScript with TeaVM. The result is bundled with all assets into a single self-contained
-          <code>.html</code> file: open it in any browser, no server, JVM, or network required after download.
-        </p>
-        <div class="chip-row">
-          <span class="chip">single .html file</span>
-          <span class="chip">modified Arc engine</span>
-          <span class="chip">fully offline after download</span>
         </div>
-        <div class="cta-stack">
-          <a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.html" download class="cta primary">Download .html →</a>
-          <a href="https://github.com/khoichon/mindustry-web/releases/latest/download/mindustry-offline.zip" download class="cta secondary">Download .zip file</a>
-          <a href="./offlinemode/build/" class="cta secondary">View offline build directly</a>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- secondary mention: play in browser instead -->
-    <p class="alt-note mono">
-      Want to jump in without downloading anything? <a href="./onlinemode/">Play in the browser now</a>
-      — a CheerpJ build of the real .jar, but it needs a live connection the whole time.
-    </p>
-  </section>
-
-  <!-- legacy / deprecated offline build -->
-  <section class="legacy">
-    <div class="legacy-box">
-      <div class="legacy-copy">
-        <div class="legacy-label mono"><span class="dot"></span>LEGACY BUILD — DEPRECATED</div>
-        <h3>Still on the old offline build?</h3>
-        <p>
-          The current TeaVM build above replaces an earlier offline version. That old build is still
-          up and untouched — no need to move off it if you'd rather not. Stick with it if:
-        </p>
-        <ul>
-          <li>You already have saves stored there and don't want to lose them</li>
-          <li>You just prefer how the previous version plays</li>
-          <li>You rely on mods — the legacy build supports more of them than the current one does</li>
-        </ul>
-      </div>
-      <a href="./onlinemode/" class="cta secondary">Go to legacy build →</a>
-    </div>
-  </section>
-
-  <section class="compare">
-    <div class="section-title">Which one am I getting?</div>
-    <div class="section-sub">Same game, different pipeline from Java to your screen.</div>
-    <table>
-      <thead>
-        <tr>
-          <th>&nbsp;</th>
-          <th class="online mono">Online — CheerpJ</th>
-          <th class="offline mono">Offline — TeaVM</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>What's compiled</td>
-          <td>Unmodified Mindustry <code class="mono">.jar</code> bytecode, patched post-build for browser I/O</td>
-          <td>A modified fork of Arc + Mindustry, compiled from source</td>
-        </tr>
-        <tr>
-          <td>Compilation target</td>
-          <td>JVM → WebAssembly, executed live</td>
-          <td>Java → JavaScript, ahead-of-time</td>
-        </tr>
-        <tr>
-          <td>Where it runs</td>
-          <td>Runs directly in the browser tab (requires internet)</td>
-          <td>Downloaded once, opened locally</td>
-        </tr>
-        <tr>
-          <td>Connection needed</td>
-          <td>Yes, while playing</td>
-          <td>Only to download</td>
-        </tr>
-        <tr>
-          <td>Best for</td>
-          <td>Jumping in immediately</td>
-          <td>LAN parties, flaky wifi, keeping a copy</td>
-        </tr>
-      </tbody>
-    </table>
-  </section>
-
-  <footer>
-    <p>
-      Unofficial, fan-made web build. Mindustry is developed by Anuken and contributors and distributed
-      under the GNU GPLv3; Arc is the engine it's built on. This project modifies both for browser
-      compatibility and is not affiliated with the original authors.
-    </p>
-    <p class="mono"><a href="https://github.com/khoichon/mindustry-web">source</a> &nbsp;·&nbsp; <a href="https://github.com/Anuken/Mindustry">original Mindustry repo</a></p>
-  </footer>
-
-</div>
-
-</body>
+      `, {
+        angle: -8,
+        closeOnOverlay: false
+      });
+    </script>
+  </body>
 </html>
